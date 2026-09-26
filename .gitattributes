@@ -1,0 +1,14 @@
+# 统一文本文件换行：入库一律 LF，避免跨平台 diff 噪音
+* text=auto eol=lf
+
+# Windows 批处理必须 CRLF，否则某些解析场景（goto/label、多行 rem）会出错
+*.cmd text eol=crlf
+*.bat text eol=crlf
+
+# 图片等二进制不要做任何转换
+*.png binary
+*.ico binary
+*.icns binary
+
+# 锁文件与产物不参与 diff 统计
+package-lock.json -diff linguist-generated

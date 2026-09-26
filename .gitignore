@@ -1,0 +1,6 @@
+node_modules/
+dist/
+dist-electron/
+.smoke/
+*.local
+.DS_Store
