@@ -80,7 +80,7 @@ set "WORKBENCH_SHOT_PREFIX=dark-"  # 截图文件名前缀，便于浅色/深色
 本机没有全局 Node 时，先把它加进当前终端的 PATH：
 
 ```bat
-set "PATH=C:\Users\xf\.zcode\workspace\default\tools\node-v22.14.0-win-x64;%PATH%"
+set "PATH=<你的便携 Node 目录>\node-v22.14.0-win-x64;%PATH%"
 ```
 
 ## 镜像加速
