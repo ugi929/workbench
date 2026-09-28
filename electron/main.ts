@@ -84,9 +84,18 @@ function showMain(page?: string): void {
     return;
   }
   if (!mainWindow || mainWindow.isDestroyed()) return;
-  if (mainWindow.isMinimized()) mainWindow.restore();
-  mainWindow.show();
-  mainWindow.focus();
+  const win = mainWindow;
+  if (win.isMinimized()) win.restore();
+  win.show();
+  win.focus();
+  // Windows 已知坑：窗口被 hide() 后再 show() 会"假活"——鼠标能点按钮，但焦点进不到文本框，
+  // 导致弹窗（如新建任务）里的输入框打不了字。下面强制把焦点交给渲染进程，并用一次
+  // "置顶再取消" 打破 input-dead 状态。
+  win.webContents.focus();
+  win.setAlwaysOnTop(true);
+  setTimeout(() => {
+    if (!win.isDestroyed()) win.setAlwaysOnTop(false);
+  }, 80);
   const allowed = ['dashboard', 'tasks', 'quadrant', 'calendar', 'gantt', 'pomodoro', 'launch', 'report', 'ai', 'settings'];
   if (page && allowed.includes(page) && !mainWindow.isDestroyed()) {
     void mainWindow.webContents.executeJavaScript(`location.hash = '#/${page}';`).catch(() => undefined);
@@ -291,7 +300,7 @@ function recreateMainWindow(): void {
       slog('SMOKE_TIMEOUT');
       console.error('SMOKE_TIMEOUT');
       app.exit(1);
-    }, SHOT === 29 ? 240000 : SHOT === 16 || SHOT === 28 ? 120000 : 30000);
+    }, SHOT === 29 ? 240000 : SHOT === 16 || SHOT === 28 || SHOT === 31 ? 120000 : 30000);
   }
 
   async function smokeCaptureAuxWindow(
@@ -698,7 +707,7 @@ function bootstrap(): void {
 
       if (
         SMOKE &&
-        (SHOT === 8 || SHOT === 9 || SHOT === 14 || SHOT === 16 || SHOT === 21 || SHOT === 22 || SHOT === 23 || SHOT === 24 || SHOT === 25 || SHOT === 26 || SHOT === 27 || SHOT === 28 || SHOT === 29 || SHOT === 30)
+        (SHOT === 8 || SHOT === 9 || SHOT === 14 || SHOT === 16 || SHOT === 21 || SHOT === 22 || SHOT === 23 || SHOT === 24 || SHOT === 25 || SHOT === 26 || SHOT === 27 || SHOT === 28 || SHOT === 29 || SHOT === 30 || SHOT === 31)
       ) {
         const smokeDir = path.join(appDir, '.smoke');
         fs.mkdirSync(smokeDir, { recursive: true });
@@ -1109,6 +1118,148 @@ function bootstrap(): void {
                 console.log('SHOT30_CLEANED', JSON.stringify(madeIds));
                 await sleep(50);
               }
+            } else if (SHOT === 31) {
+              // 回归：贴边收起后，在「贴边面板」里新建任务打不进字。
+              // 背景：面板（点菜单项后展开的真实页面：任务表单 / AI 输入框 / 设置项）是渲染在
+              // railWin 里的，而这个窗口创建时写死了 focusable:false（当年为了让悬停弹出的图标列
+              // 不抢焦点）。Windows 上不可聚焦的窗口（WS_EX_NOACTIVATE）永远拿不到键盘焦点，
+              // 于是面板里所有输入框都是死的——鼠标点得进去，字打不进去。
+              // 用例走真实路径：贴边收起 → 悬停弹出图标列 → 点「任务」开面板 → 点「新建任务」→ 打字读回；
+              // 末尾再展开完整窗口（hide→show 那条老路）验一遍主窗口里的同一个表单。
+              // 跑法：WORKBENCH_SMOKE=1 WORKBENCH_SHOT=31 WORKBENCH_DOCK_HOLD=1
+              //（DOCK_HOLD 关掉「鼠标离开自动收回」，否则面板会在用例中途自己被收走）
+              const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+              const wa = screen.getPrimaryDisplay().workArea;
+              const panel = (): BrowserWindow => {
+                const w = getRailWindow();
+                if (!w || w.isDestroyed()) throw new Error('图标列 / 面板窗口不存在');
+                return w;
+              };
+              const jsIn = <T>(w: BrowserWindow, code: string): Promise<T> =>
+                w.webContents.executeJavaScript(code) as Promise<T>;
+              const hwndOf = (w: BrowserWindow): string => {
+                try {
+                  const buf = w.getNativeWindowHandle();
+                  return buf.length >= 8 ? String(buf.readBigUInt64LE(0)) : String(buf.readUInt32LE(0));
+                } catch {
+                  return '?';
+                }
+              };
+              /** 在窗口内找一个元素并真实点击（合成鼠标事件，走渲染层输入管线） */
+              const clickIn = async (w: BrowserWindow, finder: string): Promise<void> => {
+                const pt = await jsIn<{ x: number; y: number } | null>(
+                  w,
+                  `(() => { const el = ${finder};
+                     if (!el) return null;
+                     const r = el.getBoundingClientRect();
+                     return { x: Math.round(r.x + r.width / 2), y: Math.round(r.y + r.height / 2) }; })()`,
+                );
+                if (!pt) throw new Error(`找不到可点元素：${finder}`);
+                const wc = w.webContents;
+                wc.sendInputEvent({ type: 'mouseMove', x: pt.x, y: pt.y });
+                await sleep(80);
+                wc.sendInputEvent({ type: 'mouseDown', x: pt.x, y: pt.y, button: 'left', clickCount: 1 });
+                await sleep(60);
+                wc.sendInputEvent({ type: 'mouseUp', x: pt.x, y: pt.y, button: 'left', clickCount: 1 });
+              };
+              const typeIn = async (w: BrowserWindow, text: string): Promise<void> => {
+                for (const ch of text) {
+                  w.webContents.sendInputEvent({ type: 'char', keyCode: ch });
+                  await sleep(70);
+                }
+              };
+              /** 读回「窗口焦点 + 页面里新建任务弹窗第一格的值」 */
+              const stateOf = (w: BrowserWindow): Promise<string> =>
+                jsIn(
+                  w,
+                  `(() => { const i = document.querySelector('.ant-modal input');
+                     return JSON.stringify({
+                       hasFocus: document.hasFocus(),
+                       active: document.activeElement ? document.activeElement.tagName : '',
+                       modalOpen: !!document.querySelector('.ant-modal'),
+                       value: i ? i.value : null,
+                     }); })()`,
+                );
+
+              // ① 贴到左边缘 → 自动收起
+              mainWindow?.show();
+              mainWindow?.setPosition(wa.x + 2, Math.round(wa.y + wa.height / 2 - 300));
+              await sleep(700);
+              dockCtl?.forceDock();
+              await sleep(3000);
+              if (!dockCtl?.isDocked()) throw new Error('贴边收起失败，没进停靠态');
+
+              // ② 悬停弹出图标列 → 点「任务」把面板拉开
+              dockCtl?.peekIn();
+              await sleep(1800);
+              const pw = panel();
+              console.log('SHOT31_RAIL', JSON.stringify(pw.getBounds()), 'visible=' + pw.isVisible());
+              await clickIn(
+                pw,
+                `[...document.querySelectorAll('.dock-rail-item')].find((b) => b.getAttribute('title') === '任务')`,
+              );
+              await sleep(2200);
+              console.log('SHOT31_PANEL_OPEN', JSON.stringify(pw.getBounds()));
+
+              // ③ 核心断言：面板窗口必须可聚焦。不可聚焦的窗口（WS_EX_NOACTIVATE）
+              //    在 Windows 上一点键盘都收不到，面板里的输入框注定是死的。
+              const focusable = pw.isFocusable();
+              console.log(
+                'SHOT31_PANEL_FOCUS',
+                'focusable=' + focusable,
+                'focused=' + pw.isFocused(),
+                'hwnd=' + hwndOf(pw),
+                'renderer=' + (await stateOf(pw)),
+              );
+              if (!focusable) {
+                throw new Error('面板窗口 focusable=false → 面板里的输入框收不到键盘（就是用户报的"打不进字"）');
+              }
+
+              // ④ 面板里点「新建任务」→ 点任务名称 → 打字 → 读回
+              await clickIn(
+                pw,
+                `[...document.querySelectorAll('.dock-panel-content button')].find((b) => b.textContent.trim() === '新建任务')`,
+              );
+              await sleep(1000);
+              await clickIn(pw, `document.querySelector('.ant-modal input')`);
+              await sleep(300);
+              await typeIn(pw, 'abc');
+              await sleep(400);
+              const stPanel = JSON.parse(await stateOf(pw)) as { value: string | null; hasFocus: boolean };
+              await smokeCaptureAuxWindow(pw, '31-panel-input.png', smokeDir);
+              console.log('SHOT31_PANEL_TYPED', JSON.stringify(stPanel));
+              if (stPanel.value !== 'abc') {
+                throw new Error(`面板里的输入框没收到键入：value=${JSON.stringify(stPanel.value)}`);
+              }
+
+              // ⑤ 展开完整窗口，同一个表单在主窗口里再验一遍（这条走的是 hide→show 的老路）
+              dockCtl?.expandManually('tasks');
+              await sleep(2800);
+              const mw = mainWindow;
+              if (!mw || mw.isDestroyed()) throw new Error('展开后主窗口不存在');
+              console.log(
+                'SHOT31_MAIN',
+                JSON.stringify(mw.getBounds()),
+                'visible=' + mw.isVisible(),
+                'focused=' + mw.isFocused(),
+              );
+              if (!mw.isVisible()) throw new Error('展开后主窗口不可见');
+              await clickIn(
+                mw,
+                `[...document.querySelectorAll('button')].find((b) => b.textContent.trim() === '新建任务')`,
+              );
+              await sleep(1000);
+              await clickIn(mw, `document.querySelector('.ant-modal input')`);
+              await sleep(300);
+              await typeIn(mw, 'xyz');
+              await sleep(400);
+              const stMain = JSON.parse(await stateOf(mw)) as { value: string | null };
+              await smokeCaptureAuxWindow(mw, '31-main-input.png', smokeDir);
+              console.log('SHOT31_MAIN_TYPED', JSON.stringify(stMain));
+              if (stMain.value !== 'xyz') {
+                throw new Error(`展开后主窗口输入框没收到键入：value=${JSON.stringify(stMain.value)}`);
+              }
+              console.log('SHOT31_OK 贴边面板与展开后的主窗口都能正常输入');
             } else if (SHOT === 24 || SHOT === 25 || SHOT === 26) {
               // 真机诊断：透明窗口是否真的透明。capturePage() 会丢 alpha，
               // 只有「真实屏幕截图」能区分「透明」和「白底」。

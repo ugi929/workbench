@@ -41,6 +41,8 @@
   "build": {
     "appId": "com.xf.workbench",
     "productName": "工作台",
+    "executableName": "Workbench",
+    "icon": "resources/icon.ico",
     "files": [
       "dist/**/*",
       "dist-electron/**/*",

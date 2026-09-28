@@ -250,7 +250,13 @@ export function attachEdgeDock(
         transparent: false,
         backgroundColor: '#181a20',
         resizable: false,
-        focusable: false,
+        // 必须可聚焦：点菜单项后这条栏会被拉宽成**面板**，面板里放的是真实页面
+        //（任务列表的新建任务表单 / AI 输入框 / 设置项），要能打字。
+        // Windows 上不可聚焦的窗口（WS_EX_NOACTIVATE）永远收不到键盘事件，
+        // 表现就是「鼠标点得进输入框，字打不进去」。
+        // 不会因此抢焦点：悬停弹出走的是 showInactive()（不激活窗口），
+        // 只有用户真的点了图标列（=要开面板）时 Windows 才会把焦点交给它。
+        focusable: true,
         alwaysOnTop: true,
         skipTaskbar: true,
         show: false,
@@ -262,7 +268,8 @@ export function attachEdgeDock(
         .loadFile(path.join(appPath, 'dist/index.html'), { hash: `/rail?side=${s}` })
         .then(() => {
           if (!railWin || railWin.isDestroyed()) return;
-          railWin.show();
+          // 用 showInactive：窗口现在可聚焦了，普通 show() 会把焦点从用户正在用的程序抢过来
+          railWin.showInactive();
           appLog('rail shown:', 'visible=' + railWin.isVisible(), 'bounds=' + JSON.stringify(railWin.getBounds()));
         })
         .catch((err) => appLog('rail load fail', err));
@@ -316,6 +323,13 @@ export function attachEdgeDock(
           clearInterval(leaveTimer);
           leaveTimer = null;
         }
+        return;
+      }
+      // 面板里正在打字时不要自动收回：面板持有键盘焦点就说明用户正在里面填表单，
+      // 此时鼠标就算飘到面板外也不该把面板（和没保存的内容）吞掉。
+      // 焦点真的走了（用户点了别的程序）之后，鼠标离开自动收回照旧生效。
+      if (exposed === 'panel' && railWin && !railWin.isDestroyed() && railWin.isFocused()) {
+        leaveHits = 0;
         return;
       }
       const hoverTarget = railWin && !railWin.isDestroyed() ? railWin.getBounds() : win.getBounds();
@@ -474,7 +488,32 @@ export function attachEdgeDock(
     railWin.webContents
       .executeJavaScript(`location.hash = '#/rail?side=${s}&page=${page}';`)
       .catch(() => undefined);
-    tweenRailTo(panelBounds(s, workAreaOf(railWin, win)), () => startLeaveCheck());
+    // 先把焦点交进来（用户刚点了图标列，此刻本进程是前台，聚焦一定能成功），
+    // 动画跑完再交一次：期间渲染层刚换完页面，确保焦点落在真正有输入框的那一帧上。
+    focusPanel();
+    tweenRailTo(panelBounds(s, workAreaOf(railWin, win)), () => {
+      startLeaveCheck();
+      focusPanel();
+    });
+  }
+
+  /**
+   * 面板态：把键盘焦点明确交给面板窗口。
+   * 面板里的页面是要打字的（任务表单 / AI 输入框 / 设置项），而 Windows 下窗口拿不到
+   * 焦点时键盘事件根本不会派发进来 —— 表现就是「鼠标点得进输入框，字打不进去」。
+   * 光靠「用户点了图标列所以窗口已激活」不够稳：窗口可能是 showInactive() 出来的、
+   * 动画还在跑，这里显式聚焦一次，等价于用户点了一下面板。
+   */
+  function focusPanel(): void {
+    if (!railWin || railWin.isDestroyed()) return;
+    try {
+      if (!railWin.isFocusable()) railWin.setFocusable(true);
+      railWin.focus();
+      railWin.webContents.focus();
+      appLog('dock: panel focus', 'focusable=' + railWin.isFocusable(), 'focused=' + railWin.isFocused());
+    } catch (err) {
+      appLog('dock: panel focus fail', err);
+    }
   }
 
   function collapsePanel(): void {
