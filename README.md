@@ -2,6 +2,18 @@
 
 个人效率工作台 — Windows 桌面版。Electron + React + Ant Design + SQLite（sql.js，纯 JS 无需编译环境）。五个阶段全部完成。
 
+## 界面预览
+
+![总览看板](docs/screenshots/dashboard-light.png)
+
+| 任务列表 | 四象限视图 |
+| --- | --- |
+| ![任务列表](docs/screenshots/tasks.png) | ![四象限视图](docs/screenshots/quadrant.png) |
+| **甘特图（深色）** | **番茄钟** |
+| ![甘特图](docs/screenshots/gantt-dark.png) | ![番茄钟](docs/screenshots/pomodoro.png) |
+| **深色模式总览** | **桌面小组件** |
+| ![深色总览](docs/screenshots/dashboard-dark.png) | ![桌面小组件](docs/screenshots/widget.png) |
+
 ## 当前功能（阶段 5 · 全量）
 
 - **快速搜索面板**（`Alt+Q`，可自定义）：聚光灯式全局面板，一个输入框同时搜索任务 / 便签 / 启动项 / 剪贴板历史，↑↓ 选择、Enter 执行、Esc 关闭；支持「新建任务：xxx」命令直接建任务
@@ -69,6 +81,7 @@ set "WORKBENCH_SHOT=6"      # 1 任务 / 2 四象限 / 3 日历 / 4 甘特 / 5 �
                             # 28 报告页交互回归：真实鼠标事件点「周报/月报/年报」→ 选中项 + 区间提示 + 落库 kind
                             # 29 报告生成计时探针：逐档打印耗时（排查「点了没反应 / 只出周报」）
                             # 30 报告链路自包含回归：本地假 AI 服务器，验证单轮无工具、不污染 ai_messages、挂住会超时退化
+                            # 36 README 界面截图生成器：灌演示数据 → 总览/任务/四象限/甘特/番茄钟 浅深各一轮 + 小组件
 set "WORKBENCH_DOCK_HOLD=1"        # 仅 SHOT=16：钉住展开态（否则鼠标不在上面会自动收回，截不到）
 set "WORKBENCH_DOCK_FRAC=1"        # 仅 SHOT=16：强制把手停靠位置（0~1，沿边缘比例），用于验证贴边边界几何
 set "WORKBENCH_DATA_DIR=D:\tmp\wb" # 把数据目录指到别处：冒烟跑在隔离库上，不污染真实数据，也不会和正在运行的应用抢单实例锁

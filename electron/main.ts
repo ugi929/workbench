@@ -3,7 +3,7 @@ import * as fs from 'fs';
 import * as httpMod from 'http';
 import * as path from 'path';
 import dayjs from 'dayjs';
-import { initDb, kvGet, kvSet, persistNow } from './db';
+import { initDb, kvGet, kvSet, persistNow, run as dbRun } from './db';
 import * as tasks from './tasks';
 import * as pomodoro from './pomodoro';
 import * as backup from './backup';
@@ -239,7 +239,7 @@ function recreateMainWindow(): void {
             `(async () => {
               ${darkScript}
               const l = await window.api.listTasks();
-              if (l.length === 0) {
+              if (l.length === 0 && SHOT !== 36) {
                 await window.api.createTask({ title: '整理季度汇报材料', importance: 'high', urgency: 'high', start_date: '2026-09-16', due_date: '2026-09-20', project: '季度汇报', tags: ['文档'], progress: 30 });
                 await window.api.createTask({ title: '调研甘特图组件选型', importance: 'high', urgency: 'low', start_date: '2026-10-01', due_date: '2026-10-08', status: 'in_progress', project: '工具选型' });
                 await window.api.createTask({ title: '回复合作方邮件', importance: 'low', urgency: 'high', start_date: '2026-09-22', due_date: '2026-09-25' });
@@ -302,7 +302,7 @@ function recreateMainWindow(): void {
       slog('SMOKE_TIMEOUT');
       console.error('SMOKE_TIMEOUT');
       app.exit(1);
-    }, SHOT === 29 ? 240000 : SHOT === 16 || SHOT === 28 || SHOT === 31 || SHOT === 32 || SHOT === 33 || SHOT === 34 ? 120000 : 30000);
+    }, SHOT === 29 || SHOT === 36 ? 240000 : SHOT === 16 || SHOT === 28 || SHOT === 31 || SHOT === 32 || SHOT === 33 || SHOT === 34 ? 120000 : 30000);
   }
 
   async function smokeCaptureAuxWindow(
@@ -732,7 +732,7 @@ function bootstrap(): void {
 
       if (
         SMOKE &&
-        (SHOT === 8 || SHOT === 9 || SHOT === 14 || SHOT === 16 || SHOT === 21 || SHOT === 22 || SHOT === 23 || SHOT === 24 || SHOT === 25 || SHOT === 26 || SHOT === 27 || SHOT === 28 || SHOT === 29 || SHOT === 30 || SHOT === 31 || SHOT === 32 || SHOT === 33 || SHOT === 34 || SHOT === 35)
+        (SHOT === 8 || SHOT === 9 || SHOT === 14 || SHOT === 16 || SHOT === 21 || SHOT === 22 || SHOT === 23 || SHOT === 24 || SHOT === 25 || SHOT === 26 || SHOT === 27 || SHOT === 28 || SHOT === 29 || SHOT === 30 || SHOT === 31 || SHOT === 32 || SHOT === 33 || SHOT === 34 || SHOT === 35 || SHOT === 36)
       ) {
         const smokeDir = path.join(appDir, '.smoke');
         fs.mkdirSync(smokeDir, { recursive: true });
@@ -1480,6 +1480,120 @@ function bootstrap(): void {
               const pomoInfo = await pwin.webContents.executeJavaScript(probe);
               console.log('SHOT35_POMO_WIDGET', pomoInfo);
               console.log('SHOT35_OK 诊断信息已打印（对比上方两行 JSON）');
+            } else if (SHOT === 36) {
+              // README 界面截图生成器：在冒烟隔离库上灌一套像样的演示数据（任务 + 专注记录），
+              // 依次截总览 / 任务 / 四象限 / 甘特 / 番茄钟（浅色 + 深色各一轮）+ 桌面小组件。
+              // 产物落在 .smoke/，人工挑好的拷进 docs/screenshots/ 供 README 引用。
+              // 数据种法同 SHOT 33：主进程直接写库，不与渲染层 reload 抢时序；
+              // 已完成任务的 completed_at 由 createTask 写成 now，需回填到过去 13 天撑起趋势图。
+              const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+              if (!mainWindow || mainWindow.isDestroyed()) throw new Error('主窗口不存在');
+
+              const d = (offset: number) => dayjs().add(offset, 'day').format('YYYY-MM-DD');
+              const dt = (offset: number, h: number, m: number) =>
+                `${d(offset)} ${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:00`;
+
+              // ① 演示任务：今天到期 / 逾期 / 进行中 / 未来排期，覆盖四象限与甘特时间轴
+              const seedTasks: TaskInput[] = [
+                { title: '官网首页视觉稿终审', status: 'in_progress', importance: 'high', urgency: 'high', project: '官网改版', tags: ['设计'], start_date: d(-2), due_date: d(0), progress: 60, estimated_pomos: 4 },
+                { title: '整理 Q4 OKR 草案', importance: 'high', urgency: 'medium', project: '团队管理', tags: ['规划'], due_date: d(0), estimated_pomos: 3 },
+                { title: '回复合作方对接邮件', importance: 'high', urgency: 'high', project: '日常事务', due_date: d(0), estimated_pomos: 1 },
+                { title: '修复看板图表导出空白问题', importance: 'high', urgency: 'medium', project: '数据平台', tags: ['bug'], due_date: d(-2), estimated_pomos: 2 },
+                { title: '预订下周项目评审会议室', importance: 'low', urgency: 'high', project: '日常事务', due_date: d(-1), estimated_pomos: 1 },
+                { title: '重构任务筛选器组件', status: 'in_progress', importance: 'high', urgency: 'medium', project: '数据平台', tags: ['开发'], start_date: d(-1), due_date: d(3), progress: 45, estimated_pomos: 5 },
+                { title: '编写新员工入职手册', importance: 'medium', urgency: 'low', project: '团队管理', due_date: d(4), estimated_pomos: 4 },
+                { title: '调研本地大模型部署方案', importance: 'high', urgency: 'low', project: 'AI 助手', tags: ['调研'], due_date: d(6), estimated_pomos: 6 },
+                { title: '月度数据备份演练', importance: 'low', urgency: 'low', project: '数据平台', due_date: d(8), estimated_pomos: 1 },
+                { title: '订阅续费与证书更新', importance: 'medium', urgency: 'medium', project: '日常事务', due_date: d(10), estimated_pomos: 1 },
+                { title: '整理桌面云盘目录', importance: 'low', urgency: 'low', project: '生活', due_date: d(12) },
+              ];
+              const doneSeeds: Array<{ t: TaskInput; doneAt: [number, number, number] }> = [
+                { t: { title: '发布 v0.3.0 安装包', importance: 'high', urgency: 'high', project: '官网改版', tags: ['发布'], start_date: d(-2), due_date: d(0), estimated_pomos: 3 }, doneAt: [0, 16, 40] },
+                { t: { title: '周会纪要与行动项同步', importance: 'medium', urgency: 'high', project: '团队管理', start_date: d(-1), due_date: d(0) }, doneAt: [0, 11, 20] },
+                { t: { title: '修复深色模式侧边栏对比度', importance: 'medium', urgency: 'medium', project: '官网改版', tags: ['bug'], start_date: d(-3), due_date: d(-1) }, doneAt: [-1, 17, 30] },
+                { t: { title: '整理客户反馈清单', importance: 'medium', urgency: 'low', project: '团队管理', start_date: d(-4), due_date: d(-2) }, doneAt: [-2, 10, 5] },
+                { t: { title: '数据库索引调优', importance: 'high', urgency: 'medium', project: '数据平台', tags: ['性能'], start_date: d(-5), due_date: d(-3) }, doneAt: [-3, 15, 45] },
+                { t: { title: '撰写产品更新公告', importance: 'medium', urgency: 'medium', project: '官网改版' }, doneAt: [-4, 9, 30] },
+                { t: { title: '体检报告解读', importance: 'medium', urgency: 'low', project: '生活' }, doneAt: [-5, 14, 0] },
+                { t: { title: '代码评审：权限模块', importance: 'high', urgency: 'high', project: '数据平台', tags: ['评审'] }, doneAt: [-6, 16, 10] },
+                { t: { title: '更新依赖与安全补丁', importance: 'medium', urgency: 'medium', project: '官网改版' }, doneAt: [-8, 11, 40] },
+                { t: { title: '制定下季度培训计划', importance: 'medium', urgency: 'low', project: '团队管理' }, doneAt: [-9, 10, 20] },
+                { t: { title: '修复日历周视图跨月渲染', importance: 'high', urgency: 'high', project: '官网改版', tags: ['bug'] }, doneAt: [-10, 15, 0] },
+                { t: { title: '整理监控告警规则', importance: 'medium', urgency: 'medium', project: '数据平台' }, doneAt: [-11, 14, 30] },
+                { t: { title: '家庭聚餐安排', importance: 'low', urgency: 'medium', project: '生活' }, doneAt: [-12, 18, 0] },
+                { t: { title: '月度复盘与下月计划', importance: 'high', urgency: 'low', project: '团队管理', tags: ['复盘'] }, doneAt: [-13, 20, 30] },
+              ];
+              // 先种已完成（id 小），后种活跃任务（id 大）——任务列表按 id DESC 排序，
+              // 这样浅色截图第一页展示的是待办/进行中/逾期等活跃任务而不是一屏"已完成"。
+              for (const { t, doneAt } of doneSeeds) {
+                const created = tasks.createTask({ ...t, status: 'done' });
+                dbRun('UPDATE tasks SET completed_at = ? WHERE id = ?', [dt(doneAt[0], doneAt[1], doneAt[2]), created.id]);
+              }
+              for (const t of seedTasks) tasks.createTask(t);
+
+              // ② 演示专注记录：今天 3 段（总览卡片 70 分钟）+ 过去 13 天分布（柱状图）
+              const focusPlan: Array<[number, number, number, number]> = [
+                [0, 9, 0, 25], [0, 10, 30, 25], [0, 14, 0, 20],
+                [-1, 9, 30, 25], [-1, 15, 0, 25], [-1, 16, 30, 20],
+                [-2, 10, 0, 25], [-2, 14, 30, 25],
+                [-3, 9, 0, 25], [-3, 10, 30, 25], [-3, 15, 30, 25],
+                [-4, 9, 30, 25], [-4, 14, 0, 20],
+                [-6, 10, 0, 25],
+                [-7, 9, 0, 25], [-7, 10, 30, 25], [-7, 14, 0, 25],
+                [-8, 9, 30, 25], [-8, 15, 0, 20],
+                [-10, 9, 0, 25], [-10, 10, 30, 25], [-10, 14, 30, 25],
+                [-11, 9, 30, 25], [-11, 14, 0, 20],
+                [-13, 9, 0, 25], [-13, 10, 30, 25],
+              ];
+              for (const [off, h, m, min] of focusPlan) {
+                pomodoro.recordSession({
+                  task_id: null, kind: 'focus',
+                  started_at: dt(off, h, m), ended_at: dt(off, h + Math.floor((m + min) / 60), (m + min) % 60),
+                  minutes: min,
+                });
+              }
+
+              // ③ 等渲染层就绪，逐页截图（浅色）。
+              // 关键：种数据是主进程直写库，不广播 data:changed，渲染层不会自己刷新；
+              // 且默认路由就是 /dashboard，首次 goto 同 hash 不触发重新挂载。
+              // → 种完显式 location.reload()，让 React 重新挂载时拉到全新数据。
+              //   （老 seed 已按 SHOT!==36 排除，不会混入旧演示任务。）
+              mainWindow.show();
+              await mainWindow.webContents.executeJavaScript(`location.reload()`);
+              await sleep(2800);
+              const goto = async (hash: string, wait: number) => {
+                await mainWindow!.webContents.executeJavaScript(`location.hash = '${hash}';`);
+                await sleep(wait);
+              };
+              const pages: Array<[string, string]> = [
+                ['#/dashboard', '36-dashboard.png'],
+                ['#/tasks', '36-tasks.png'],
+                ['#/quadrant', '36-quadrant.png'],
+                ['#/gantt?scale=week', '36-gantt.png'],
+                ['#/pomodoro', '36-pomodoro.png'],
+              ];
+              for (const [hash, file] of pages) {
+                await goto(hash, 1800);
+                await smokeCaptureAuxWindow(mainWindow!, file, smokeDir);
+              }
+
+              // ④ 深色一轮（setSetting 广播 → 各页重新渲染）
+              await mainWindow.webContents.executeJavaScript(`window.api.setSetting('theme','dark').then(()=>'ok')`);
+              await sleep(1200);
+              for (const [hash, file] of pages) {
+                await goto(hash, 1500);
+                await smokeCaptureAuxWindow(mainWindow!, 'dark-' + file, smokeDir);
+              }
+              await mainWindow.webContents.executeJavaScript(`window.api.setSetting('theme','light').then(()=>'ok')`);
+              await sleep(600);
+
+              // ⑤ 桌面小组件（本身是深色半透明面板，截一张即可）
+              widget.toggleWidget();
+              await sleep(2500);
+              const wwin = widget.getWidget();
+              if (!wwin || wwin.isDestroyed()) throw new Error('小组件窗口未创建');
+              await smokeCaptureAuxWindow(wwin, '36-widget.png', smokeDir);
+              console.log('SHOT36_OK README 截图已生成（5 页 × 浅/深 + 小组件）');
             } else if (SHOT === 24 || SHOT === 25 || SHOT === 26) {
               // 真机诊断：透明窗口是否真的透明。capturePage() 会丢 alpha，
               // 只有「真实屏幕截图」能区分「透明」和「白底」。
