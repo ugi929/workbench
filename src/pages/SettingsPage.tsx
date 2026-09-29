@@ -47,6 +47,7 @@ const HOTKEY_ROWS: { key: keyof HotkeyMap; label: string }[] = [
   { key: 'main', label: '显示 / 隐藏主窗口' },
   { key: 'search', label: '快速搜索面板' },
   { key: 'widget', label: '显示 / 隐藏桌面小组件' },
+  { key: 'pomodoro', label: '显示 / 隐藏番茄钟小组件' },
   { key: 'note', label: '新建便签' },
   { key: 'launch', label: '快速打开启动项（小组件）' },
 ];
@@ -94,6 +95,7 @@ export default function SettingsPage({ themeMode, onThemeChange, onSaved }: Prop
     note: 'Alt+N',
     search: 'Alt+Q',
     launch: 'Alt+L',
+    pomodoro: 'Alt+P',
   });
   const [ai, setAi] = useState<{ baseURL: string; model: string; apiKey: string }>({
     baseURL: '',

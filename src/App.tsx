@@ -26,6 +26,7 @@ import SettingsPage from './pages/SettingsPage';
 import LaunchPage from './pages/LaunchPage';
 import LaunchWidgetPage from './pages/LaunchWidgetPage';
 import WidgetPage from './pages/WidgetPage';
+import PomodoroWidgetPage from './pages/PomodoroWidgetPage';
 import NoteView from './pages/NoteView';
 import AIPage from './pages/AIPage';
 import ReportPage from './pages/ReportPage';
@@ -53,6 +54,7 @@ export type PageKey =
   | 'settings'
   | 'widget'
   | 'launch-widget'
+  | 'pomodoro-widget'
   | 'note'
   | 'search'
   | 'rail'
@@ -74,6 +76,7 @@ const PAGE_HASH: Record<PageKey, string> = {
   settings: '#/settings',
   widget: '#/widget',
   'launch-widget': '#/launch-widget',
+  'pomodoro-widget': '#/pomodoro-widget',
   note: '#/note',
   search: '#/search',
   rail: '#/rail',
@@ -84,6 +87,7 @@ const PAGE_HASH: Record<PageKey, string> = {
 function initialPage(): PageKey {
   const h = window.location.hash;
   if (h.startsWith('#/launch-widget')) return 'launch-widget';
+  if (h.startsWith('#/pomodoro-widget')) return 'pomodoro-widget';
   if (h.startsWith('#/widget')) return 'widget';
   if (h.startsWith('#/note/')) return 'note';
   if (h.startsWith('#/search')) return 'search';
@@ -166,7 +170,17 @@ function WorkbenchApp() {
   }, [page]);
 
   useEffect(() => {
-    if (page === 'widget' || page === 'launch-widget' || page === 'note' || page === 'search' || page === 'rail' || page === 'dockanim' || page === 'handle') return;
+    if (
+      page === 'widget' ||
+      page === 'launch-widget' ||
+      page === 'pomodoro-widget' ||
+      page === 'note' ||
+      page === 'search' ||
+      page === 'rail' ||
+      page === 'dockanim' ||
+      page === 'handle'
+    )
+      return;
     if (!window.location.hash.startsWith(PAGE_HASH[page])) window.location.hash = PAGE_HASH[page];
   }, [page]);
 
@@ -181,7 +195,7 @@ function WorkbenchApp() {
         setRailPanelPage(pg && (MAIN_ITEMS as { key: string }[]).some((i) => i.key === pg) ? pg : null);
         return;
       }
-      if (p !== 'widget' && p !== 'launch-widget' && p !== 'note' && p !== 'search' && p !== 'dockanim' && p !== 'handle') setPage(p);
+      if (p !== 'widget' && p !== 'launch-widget' && p !== 'pomodoro-widget' && p !== 'note' && p !== 'search' && p !== 'dockanim' && p !== 'handle') setPage(p);
     };
     window.addEventListener('hashchange', onHash);
     return () => window.removeEventListener('hashchange', onHash);
@@ -194,12 +208,31 @@ function WorkbenchApp() {
     else delete document.documentElement.dataset.theme;
   }, [page, themeMode]);
 
-  const changeTheme = (dark: boolean) => {
-    const next: ThemeMode = dark ? 'dark' : 'light';
-    setThemeMode(next);
-    void window.api.setSetting('theme', next).catch(() => message.warning('主题偏好保存失败'));
+  const applyTheme = (dark: boolean) => {
+    setThemeMode(dark ? 'dark' : 'light');
     void window.api.setTitleBar(dark);
   };
+
+  const changeTheme = (dark: boolean) => {
+    applyTheme(dark);
+    const next: ThemeMode = dark ? 'dark' : 'light';
+    void window.api.setSetting('theme', next).catch(() => message.warning('主题偏好保存失败'));
+  };
+
+  // 跨窗口同步：任一窗口改了任务数据 → 本窗口重新拉取；主题被其它窗口改了 → 同步应用。
+  // 这样「展开（主窗口）」与「收缩（贴边面板）」两边的任务和主题始终保持一致。
+  useEffect(() => {
+    const offData = window.api.onDataChanged(() => {
+      void reload();
+    });
+    const offTheme = window.api.onSettingsChanged((key, value) => {
+      if (key === 'theme') applyTheme(value === 'dark');
+    });
+    return () => {
+      offData();
+      offTheme();
+    };
+  }, [reload]);
 
   const menuProps = {
     mode: 'inline' as const,
@@ -234,6 +267,19 @@ function WorkbenchApp() {
         }}
       >
         <LaunchWidgetPage />
+      </ConfigProvider>
+    );
+  }
+  if (page === 'pomodoro-widget') {
+    // 番茄钟小组件：卡片底色是深色，统一用 antd 深色算法，保证按钮/进度环可读
+    return (
+      <ConfigProvider
+        theme={{
+          algorithm: antdTheme.darkAlgorithm,
+          token: { colorPrimary: '#4c6ef5', borderRadius: 6 },
+        }}
+      >
+        <PomodoroWidgetPage />
       </ConfigProvider>
     );
   }

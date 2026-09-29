@@ -79,11 +79,14 @@ export default function DashboardPage({ tasks, reload }: Props) {
           <Statistic title="本周完成" value={stats?.doneThisWeek ?? 0} valueStyle={{ color: '#52c41a' }} />
         </Card>
         <Card size="small" className="stat-card">
-          <Statistic
-            title="今日专注"
-            value={stats?.focusMinutesToday ?? 0}
-            suffix={`分钟 / ${stats?.focusCountToday ?? 0} 个番茄`}
-          />
+          <div className="focus-stat">
+            <span className="focus-stat-label">今日专注</span>
+            <div className="focus-stat-main">
+              <span className="focus-stat-num">{stats?.focusMinutesToday ?? 0}</span>
+              <span className="focus-stat-unit">分钟</span>
+            </div>
+            <div className="focus-stat-sub">{stats?.focusCountToday ?? 0} 个番茄</div>
+          </div>
         </Card>
       </div>
 

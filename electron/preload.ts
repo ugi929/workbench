@@ -37,6 +37,13 @@ const api = {
   setTitleBar: (dark: boolean) => ipcRenderer.invoke('window:titlebar', dark),
   getSettings: (): Promise<SettingsMap> => ipcRenderer.invoke('settings:getAll'),
   setSetting: (key: string, value: string) => ipcRenderer.invoke('settings:set', key, value),
+  /** 任意窗口改了数据（任务增删改 / 导入 / AI 写任务）后，主进程广播回来；返回取消订阅函数。
+   * 各窗口据此重新拉取数据，保证主窗口与贴边面板、小组件之间数据一致。 */
+  onDataChanged: (cb: (kind: string) => void) => {
+    const listener = (_e: unknown, kind: string) => cb(kind);
+    ipcRenderer.on('data:changed', listener as never);
+    return () => ipcRenderer.removeListener('data:changed', listener as never);
+  },
   /** 任意窗口调用 settings:set 后，主进程会广播回来；返回取消订阅函数 */
   onSettingsChanged: (cb: (key: string, value: string) => void) => {
     const listener = (_e: unknown, key: string, value: string) => cb(key, value);

@@ -385,9 +385,14 @@ export function dashboardStats(): DashboardStats {
   const weekStart = dayjs().startOf('week').format('YYYY-MM-DD');
   const active = `status IN ('todo', 'in_progress', 'paused')`;
 
+  // 今日待办：到期日是今天，或「起止区间包含今天」的跨天任务（start_date<=今天 且 未到期/无截止日）。
+  // 之前只取 due_date=今天，导致「从昨天排到后天」这类跨天任务不出现在今日待办里。
   const todayDue = all<Record<string, unknown>>(
-    `SELECT * FROM tasks WHERE ${active} AND due_date = ? ORDER BY importance DESC, id DESC`,
-    [today],
+    `SELECT * FROM tasks WHERE ${active} AND (
+       due_date = ?
+       OR (start_date IS NOT NULL AND start_date <= ? AND (due_date IS NULL OR due_date >= ?))
+     ) ORDER BY importance DESC, id DESC`,
+    [today, today, today],
   ).map(rowToTask);
   const overdue = all<Record<string, unknown>>(
     `SELECT * FROM tasks WHERE ${active} AND due_date < ? AND due_date IS NOT NULL ORDER BY due_date ASC LIMIT 20`,

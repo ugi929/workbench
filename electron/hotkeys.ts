@@ -8,6 +8,7 @@ export const DEFAULT_HOTKEYS: HotkeyMap = {
   note: 'Alt+N',
   search: 'Alt+Q',
   launch: 'Alt+L',
+  pomodoro: 'Alt+P',
 };
 
 type Actions = {
@@ -16,6 +17,7 @@ type Actions = {
   createNote: () => void;
   toggleSearch: () => void;
   openLaunch: () => void;
+  togglePomodoroWidget: () => void;
 };
 
 let actions: Actions | null = null;
@@ -53,6 +55,7 @@ export function registerHotkeys(a: Actions): { failed: string[] } {
   reg(map.note, () => actions?.createNote());
   reg(map.search, () => actions?.toggleSearch());
   reg(map.launch, () => actions?.openLaunch());
+  reg(map.pomodoro, () => actions?.togglePomodoroWidget());
   return { failed };
 }
 

@@ -303,7 +303,8 @@ body {
 /* ---------- 看板 ---------- */
 .stat-grid {
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
+  /* minmax(0,1fr) 让卡片可收缩、内容不溢出；窗口变窄时自动换行，避免「今日专注」被长后缀挤乱 */
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 12px;
   margin-bottom: 12px;
 }
@@ -316,6 +317,44 @@ body {
 .stat-card .ant-statistic-content {
   font-size: 26px;
   line-height: 1.2;
+}
+
+/* 今日专注卡片：分钟为主数字、番茄数为独立副行，避免长后缀把统计块挤乱 */
+.focus-stat {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+/* 标题行与其余 .stat-card 的 Statistic 标题保持一致（13px / 下间距 4px） */
+.focus-stat-label {
+  font-size: 13px;
+  line-height: 1.5;
+  margin-bottom: 4px;
+  color: var(--text-sub);
+}
+
+.focus-stat-main {
+  display: flex;
+  align-items: baseline;
+  gap: 4px;
+}
+
+.focus-stat-num {
+  font-size: 26px;
+  font-weight: 600;
+  line-height: 1.2;
+  font-variant-numeric: tabular-nums;
+}
+
+.focus-stat-unit {
+  font-size: 13px;
+  color: var(--text-sub);
+}
+
+.focus-stat-sub {
+  font-size: 13px;
+  color: var(--text-sub);
 }
 
 .board-panels {
@@ -959,6 +998,50 @@ body {
   overflow: hidden;
   text-overflow: ellipsis;
   color: var(--widget-fg, #e8eaed);
+}
+
+/* ---------- 番茄钟小组件（Alt+P 呼出） ---------- */
+.pomo-widget {
+  align-items: center;
+  gap: 10px;
+  text-align: center;
+}
+
+.pomo-w-ring {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  padding: 12px;
+}
+
+.pomo-w-time {
+  position: absolute;
+  font-size: 34px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.pomo-w-mode {
+  margin-top: 2px;
+}
+
+.pomo-w-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+.pomo-w-foot {
+  display: flex;
+  justify-content: space-between;
+  width: 100%;
+  font-size: 11px;
+  color: var(--widget-fg-dim, #9aa0a6);
+  padding-top: 8px;
+  margin-top: 8px;
+  border-top: 1px solid var(--widget-line, rgba(255, 255, 255, 0.08));
 }
 
 /* ---------- 便签 ---------- */

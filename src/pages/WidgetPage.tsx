@@ -26,6 +26,8 @@ export default function WidgetPage() {
     document.documentElement.style.background = 'transparent';
     void load();
     const t = setInterval(() => void load(), 30000);
+    // 其它窗口改了任务 → 立即刷新，不必等 30s 轮询
+    const offData = window.api.onDataChanged(() => void load());
     // 背景色 / 不透明度来自设置页，并订阅变更实时刷新
     let off: (() => void) | null = null;
     let disposed = false;
@@ -37,12 +39,20 @@ export default function WidgetPage() {
       disposed = true;
       clearInterval(t);
       off?.();
+      offData();
     };
   }, [load]);
 
   const today = dayjs().format('YYYY-MM-DD');
+  // 与 dashboardStats().todayDue 口径一致：到期日是今天，或起止区间包含今天的跨天任务
+  const isTodayTask = (t: Task): boolean => {
+    if (!ACTIVE_STATUSES.includes(t.status)) return false;
+    if (t.due_date === today) return true;
+    if (t.start_date && t.start_date <= today && (!t.due_date || t.due_date >= today)) return true;
+    return false;
+  };
   const todayTasks = tasks
-    .filter((t) => ACTIVE_STATUSES.includes(t.status) && t.due_date && t.due_date <= today)
+    .filter(isTodayTask)
     .sort((a, b) => (a.due_date ?? '').localeCompare(b.due_date ?? ''))
     .slice(0, 8);
 

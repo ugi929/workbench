@@ -44,6 +44,8 @@ declare global {
       setTitleBar(dark: boolean): Promise<boolean>;
       getSettings(): Promise<SettingsMap>;
       setSetting(key: string, value: string): Promise<void>;
+      /** 数据变更广播（任务增删改 / 导入 / AI 写任务后推送给所有窗口），返回取消订阅函数 */
+      onDataChanged(cb: (kind: string) => void): () => void;
       /** 设置变更广播（主进程 settings:set 后推送给所有窗口），返回取消订阅函数 */
       onSettingsChanged(cb: (key: string, value: string) => void): () => void;
       pomoRecord(s: Omit<PomodoroSession, 'id'>): Promise<PomodoroSession>;

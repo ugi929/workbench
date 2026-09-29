@@ -150,6 +150,7 @@ export interface HotkeyMap {
   note: string;
   search: string;
   launch: string;
+  pomodoro: string;
 }
 
 export interface Clip {

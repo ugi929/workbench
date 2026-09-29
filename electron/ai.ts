@@ -3,6 +3,7 @@ import { all, kvGet, kvSet, lastInsertId, run } from './db';
 import * as tasks from './tasks';
 import * as pomodoro from './pomodoro';
 import * as notes from './notes';
+import { broadcast } from './broadcast';
 import dayjs from 'dayjs';
 import type { AiEvent } from '../shared/types';
 
@@ -412,6 +413,7 @@ async function executeTool(name: string, args: Record<string, unknown>, send: (e
       });
       result = { ok: true, id: t.id, title: t.title, due: t.due_date };
       summary = `已创建任务「${t.title}」${t.due_date ? `（截止 ${t.due_date}）` : ''}`;
+      broadcast('data:changed', 'tasks');
       break;
     }
     case 'update_task': {
@@ -422,6 +424,7 @@ async function executeTool(name: string, args: Record<string, unknown>, send: (e
       const t = tasks.updateTask(Number(args.id), patch);
       result = { ok: true, id: t.id, title: t.title, status: t.status, due: t.due_date };
       summary = `已更新任务「${t.title}」`;
+      broadcast('data:changed', 'tasks');
       break;
     }
     case 'get_stats': {

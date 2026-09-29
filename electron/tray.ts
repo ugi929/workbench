@@ -12,6 +12,7 @@ export interface TrayActions {
   showMain: () => void;
   toggleSearch: () => void;
   toggleWidget: () => void;
+  togglePomodoroWidget: () => void;
   createNote: () => void;
   toggleAllNotes: () => void;
   quit: () => void;
@@ -31,6 +32,7 @@ export function createTray(actions: TrayActions): void {
     { label: '显示主窗口', click: actions.showMain },
     { label: '快速搜索', click: actions.toggleSearch },
     { label: '桌面小组件', click: actions.toggleWidget },
+    { label: '番茄钟小组件', click: actions.togglePomodoroWidget },
     { label: '新建便签', click: actions.createNote },
     { label: '显示/隐藏全部便签', click: actions.toggleAllNotes },
     { type: 'separator' },

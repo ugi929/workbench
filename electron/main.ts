@@ -10,6 +10,7 @@ import * as backup from './backup';
 import * as notes from './notes';
 import * as widget from './widget';
 import * as launchWidget from './launchWidget';
+import * as pomodoroWidget from './pomodoroWidget';
 import * as trayMod from './tray';
 import * as hotkeys from './hotkeys';
 import * as launch from './launch';
@@ -19,6 +20,7 @@ import * as clipboardMod from './clipboard';
 import * as searchMod from './search';
 import { initPomodoroService } from './pomodoroService';
 import { attachEdgeDock, getHandleWindow, getRailWindow, initEdgeDock } from './edgeDock';
+import { broadcast } from './broadcast';
 import { appLog, initLogger } from './logger';
 import type {
   AiEvent,
@@ -300,7 +302,7 @@ function recreateMainWindow(): void {
       slog('SMOKE_TIMEOUT');
       console.error('SMOKE_TIMEOUT');
       app.exit(1);
-    }, SHOT === 29 ? 240000 : SHOT === 16 || SHOT === 28 || SHOT === 31 ? 120000 : 30000);
+    }, SHOT === 29 ? 240000 : SHOT === 16 || SHOT === 28 || SHOT === 31 || SHOT === 32 || SHOT === 33 || SHOT === 34 ? 120000 : 30000);
   }
 
   async function smokeCaptureAuxWindow(
@@ -456,13 +458,32 @@ function recreateMainWindow(): void {
 
 function registerIpc(): void {
   ipcMain.handle('tasks:list', () => tasks.listTasks());
-  ipcMain.handle('tasks:create', (_e, input: TaskInput) => tasks.createTask(input));
-  ipcMain.handle('tasks:update', (_e, id: number, patch: Partial<TaskInput>) => tasks.updateTask(id, patch));
-  ipcMain.handle('tasks:delete', (_e, id: number) => tasks.deleteTask(id));
-  ipcMain.handle('tasks:setStatus', (_e, id: number, status: TaskStatus) => tasks.updateTask(id, { status }));
+  ipcMain.handle('tasks:create', (_e, input: TaskInput) => {
+    const r = tasks.createTask(input);
+    broadcast('data:changed', 'tasks');
+    return r;
+  });
+  ipcMain.handle('tasks:update', (_e, id: number, patch: Partial<TaskInput>) => {
+    const r = tasks.updateTask(id, patch);
+    broadcast('data:changed', 'tasks');
+    return r;
+  });
+  ipcMain.handle('tasks:delete', (_e, id: number) => {
+    tasks.deleteTask(id);
+    broadcast('data:changed', 'tasks');
+  });
+  ipcMain.handle('tasks:setStatus', (_e, id: number, status: TaskStatus) => {
+    const r = tasks.updateTask(id, { status });
+    broadcast('data:changed', 'tasks');
+    return r;
+  });
 
   ipcMain.handle('import:parse', (_e, filePath: string) => tasks.parseImportFile(filePath));
-  ipcMain.handle('import:commit', (_e, rows: ImportRow[], mode: ImportMode) => tasks.commitImport(rows, mode));
+  ipcMain.handle('import:commit', (_e, rows: ImportRow[], mode: ImportMode) => {
+    const r = tasks.commitImport(rows, mode);
+    broadcast('data:changed', 'tasks');
+    return r;
+  });
 
   ipcMain.handle('dialog:pickImportFile', async () => {
     const r = await dialog.showOpenDialog({
@@ -597,6 +618,7 @@ function registerIpc(): void {
   ipcMain.handle('hotkeys:set', (_e, map: HotkeyMap) => hotkeys.setHotkeys(map));
 
   ipcMain.handle('widget:toggle', () => widget.toggleWidget());
+  ipcMain.handle('pomoWidget:toggle', () => pomodoroWidget.togglePomodoroWidget());
 
   ipcMain.handle('ai:getConfig', () => aiMod.getAiConfigPublic());
   ipcMain.handle('ai:setConfig', (_e, cfg: { baseURL: string; model: string; apiKey?: string }) => {
@@ -655,10 +677,12 @@ function bootstrap(): void {
       createWindow();
       trayMod.initTray(appDir);
       launchWidget.initLaunchWidget(appDir);
+      pomodoroWidget.initPomodoroWidget(appDir);
       trayMod.createTray({
         showMain,
         toggleSearch: () => searchMod.toggleSearch(),
         toggleWidget: () => widget.toggleWidget(),
+        togglePomodoroWidget: () => pomodoroWidget.togglePomodoroWidget(),
         createNote: createNoteAction,
         toggleAllNotes: () => notes.toggleAllNotes(),
         quit: () => {
@@ -677,6 +701,7 @@ function bootstrap(): void {
         createNote: createNoteAction,
         toggleSearch: () => searchMod.toggleSearch(),
         openLaunch: () => launchWidget.toggleLaunchWidget(),
+        togglePomodoroWidget: () => pomodoroWidget.togglePomodoroWidget(),
       });
       if (hk.failed.length) console.log('HOTKEY_FAILED', hk.failed.join(','));
       // 便签默认不在启动时自动弹出（省内存，也免得每次开机被一堆便签挡住）；
@@ -707,7 +732,7 @@ function bootstrap(): void {
 
       if (
         SMOKE &&
-        (SHOT === 8 || SHOT === 9 || SHOT === 14 || SHOT === 16 || SHOT === 21 || SHOT === 22 || SHOT === 23 || SHOT === 24 || SHOT === 25 || SHOT === 26 || SHOT === 27 || SHOT === 28 || SHOT === 29 || SHOT === 30 || SHOT === 31)
+        (SHOT === 8 || SHOT === 9 || SHOT === 14 || SHOT === 16 || SHOT === 21 || SHOT === 22 || SHOT === 23 || SHOT === 24 || SHOT === 25 || SHOT === 26 || SHOT === 27 || SHOT === 28 || SHOT === 29 || SHOT === 30 || SHOT === 31 || SHOT === 32 || SHOT === 33 || SHOT === 34)
       ) {
         const smokeDir = path.join(appDir, '.smoke');
         fs.mkdirSync(smokeDir, { recursive: true });
@@ -1260,6 +1285,165 @@ function bootstrap(): void {
                 throw new Error(`展开后主窗口输入框没收到键入：value=${JSON.stringify(stMain.value)}`);
               }
               console.log('SHOT31_OK 贴边面板与展开后的主窗口都能正常输入');
+            } else if (SHOT === 32) {
+              // 验证 4 项改动中可在运行时确认的两点：
+              //  · item 1：今日待办纳入「跨天任务」——建 start=昨天、due=明天的任务，
+              //    断言 dashboardStats().todayDue 包含它（旧逻辑仅 due_date=今天，必漏）。
+              //  · item 2：番茄钟桌面小组件能打开并渲染——ipc 调 pomoWidget:toggle，
+              //    断言『番茄钟小组件』窗口出现且可见，且 DOM 里有计时文字（.pomo-w-time）。
+              // 附：createTask 会广播 data:changed，主窗口 reload 不应崩（item 3 接线冒烟）。
+              const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+              if (!mainWindow || mainWindow.isDestroyed()) throw new Error('主窗口不存在');
+              await sleep(1500);
+              const jsIn = <T>(code: string): Promise<T> =>
+                mainWindow!.webContents.executeJavaScript(code) as Promise<T>;
+
+              const yesterday = dayjs().subtract(1, 'day').format('YYYY-MM-DD');
+              const tomorrow = dayjs().add(1, 'day').format('YYYY-MM-DD');
+              await jsIn(
+                `window.api.createTask({ title: 'SHOT32跨天任务', start_date: '${yesterday}', due_date: '${tomorrow}' }).then(()=>'ok')`,
+              );
+              await sleep(900);
+
+              const todayDue: { title: string }[] = await jsIn(
+                'window.api.dashboardStats().then(s=>s.todayDue.map(t=>({title:t.title})))',
+              );
+              const hasSpanned = todayDue.some((t) => t.title === 'SHOT32跨天任务');
+              console.log('SHOT32_TODAYDUE', JSON.stringify(todayDue.map((t) => t.title)), 'hasSpanned=' + hasSpanned);
+              if (!hasSpanned) throw new Error('今日待办未纳入跨天任务（item 1 修复未生效或 asar 未重建）');
+
+              pomodoroWidget.togglePomodoroWidget();
+              await sleep(2500);
+              const pwin = pomodoroWidget.getPomodoroWidget();
+              if (!pwin || pwin.isDestroyed()) throw new Error('番茄钟小组件窗口未创建');
+              if (!pwin.isVisible()) throw new Error('番茄钟小组件窗口不可见');
+              const ptime = await pwin.webContents.executeJavaScript(
+                `document.querySelector('.pomo-w-time') ? document.querySelector('.pomo-w-time').textContent : null`,
+              );
+              console.log('SHOT32_POMO_WIDGET', 'visible=' + pwin.isVisible(), 'time=' + ptime);
+              if (!ptime) throw new Error('番茄钟小组件未渲染计时（DOM 缺 .pomo-w-time）');
+              await smokeCaptureAuxWindow(pwin, '32-pomo-widget.png', smokeDir);
+
+              // 顺手开一下任务小组件，确认不崩
+              widget.toggleWidget();
+              await sleep(1500);
+
+              console.log('SHOT32_OK 今日待办已纳入跨天任务 + 番茄钟小组件可打开并渲染');
+            } else if (SHOT === 33) {
+              // 视觉核对 item 4：总览页「今日专注」卡片排版。
+              // 两个坑：
+              //  ① SMOKE 下主窗口默认 show:false（buildMainWindow 里 `if (!SMOKE) w.show()`），
+              //     直接 capturePage 只能拍到空白，必须显式 show()。
+              //  ② 专注记录用主进程直接写库（pomodoro.recordSession），不要走渲染层 IPC：
+              //     渲染层在 did-finish-load 里有自己的 location.reload()，走 IPC 会与它抢时序，
+              //     曾出现「库里已有 70 分钟、卡片仍显示 0 分钟」。
+              const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+              if (!mainWindow || mainWindow.isDestroyed()) throw new Error('主窗口不存在');
+              const todayStr = dayjs().format('YYYY-MM-DD');
+              const at = (h: number, m: number) =>
+                `${todayStr} ${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:00`;
+              for (const s of [
+                { started_at: at(9, 0), ended_at: at(9, 25), minutes: 25 },
+                { started_at: at(10, 0), ended_at: at(10, 25), minutes: 25 },
+                { started_at: at(14, 0), ended_at: at(14, 20), minutes: 20 },
+              ] as const) {
+                pomodoro.recordSession({ task_id: null, kind: 'focus', ...s });
+              }
+              // 等渲染层跑完「首次加载 → 自身 reload → 挂载总览页」这一套；
+              // 再用 tasks↔dashboard 的 hash 往返强制总览页重新挂载、重新拉 stats，
+              // 确保拿到刚写入的专注数据（不是挂载在播种之前的旧 0）。
+              await sleep(2200);
+              mainWindow.show();
+              await mainWindow.webContents.executeJavaScript(`location.hash = '#/tasks';`);
+              await sleep(600);
+              await mainWindow.webContents.executeJavaScript(`location.hash = '#/dashboard';`);
+              await sleep(1800);
+              const isDark = process.env.WORKBENCH_DARK === '1';
+              await smokeCaptureAuxWindow(
+                mainWindow,
+                isDark ? '33-dashboard-dark.png' : '33-dashboard.png',
+                smokeDir,
+              );
+              const focusText = await mainWindow.webContents.executeJavaScript(
+                `(() => { const n = document.querySelector('.focus-stat-num'); const s = document.querySelector('.focus-stat-sub'); return n ? (n.textContent + ' | ' + (s ? s.textContent : '')) : null; })()`,
+              );
+              console.log('SHOT33_FOCUS_CARD', focusText);
+              console.log(
+                'SHOT33_OK 总览页已截图（今日专注应为 70 分钟 / 3 个番茄），dark=' + isDark,
+              );
+            } else if (SHOT === 34) {
+              // 验证 item 3：跨窗口同步（主窗口 ↔ 任务小组件 ↔ 贴边面板）。
+              // 三个窗口是三个独立 React 实例，靠 data:changed / settings:changed 广播保持一致：
+              //  ① 主窗口建任务（due_date=今天，保证落进小组件今日清单）→ 小组件应自动出现
+              //  ② 小组件里改任务标题 → 主窗口任务页应自动更新
+              //  ③ 主窗口切深色 → rail 窗口（面板同款挂载方式）应把 dataset.theme 切成 dark
+              const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+              if (!mainWindow || mainWindow.isDestroyed()) throw new Error('主窗口不存在');
+              mainWindow.show();
+              await mainWindow.webContents.executeJavaScript(`location.hash = '#/tasks';`);
+              await sleep(900);
+
+              // ① 任务小组件（收缩态视图之一）
+              widget.toggleWidget();
+              await sleep(2500);
+              const wwin = widget.getWidget();
+              if (!wwin || wwin.isDestroyed()) throw new Error('任务小组件窗口未创建');
+
+              const today = dayjs().format('YYYY-MM-DD');
+              await mainWindow.webContents.executeJavaScript(
+                `window.api.createTask({ title: 'SHOT34跨窗同步', status: 'todo', due_date: '${today}' }).then(()=>'ok')`,
+              );
+              await sleep(1800);
+              const widgetHas = await wwin.webContents.executeJavaScript(
+                `(document.body.innerText || '').includes('SHOT34跨窗同步')`,
+              );
+              console.log('SHOT34_TASK_SYNC main→widget', 'widgetHas=' + widgetHas);
+              if (!widgetHas) throw new Error('主窗口新建任务未同步到任务小组件');
+
+              // ② 在小组件窗口里改标题 → 主窗口任务页应自动刷新出新标题
+              const tid = await mainWindow.webContents.executeJavaScript(
+                `window.api.listTasks().then(ts => { const t = ts.find(x => x.title === 'SHOT34跨窗同步'); return t ? t.id : 0; })`,
+              );
+              if (!tid) throw new Error('任务未入库');
+              await wwin.webContents.executeJavaScript(
+                `window.api.updateTask(${tid}, { title: 'SHOT34跨窗同步-改' }).then(()=>'ok')`,
+              );
+              await sleep(1800);
+              const mainHas = await mainWindow.webContents.executeJavaScript(
+                `(document.body.innerText || '').includes('SHOT34跨窗同步-改')`,
+              );
+              console.log('SHOT34_TASK_SYNC widget→main', 'mainHas=' + mainHas);
+              if (!mainHas) throw new Error('小组件改任务未同步回主窗口');
+
+              // ③ 主题同步：rail 窗口与面板同款挂载方式（loadFile + hash=/rail?side=left）
+              const railWin = new BrowserWindow({
+                width: 220,
+                height: 620,
+                frame: false,
+                show: false,
+                skipTaskbar: true,
+                backgroundColor: '#181a20',
+                webPreferences: { preload: path.join(__dirname, 'preload.js') },
+              });
+              await railWin.loadFile(path.join(appDir, 'dist/index.html'), { hash: '/rail?side=left' });
+              railWin.showInactive();
+              await sleep(1200);
+              await mainWindow.webContents.executeJavaScript(
+                `window.api.setSetting('theme','dark').then(()=>'ok')`,
+              );
+              await sleep(1200);
+              const railTheme = await railWin.webContents.executeJavaScript(
+                `document.documentElement.dataset.theme || 'light'`,
+              );
+              console.log('SHOT34_THEME_SYNC main→rail', 'railTheme=' + railTheme);
+              await mainWindow.webContents.executeJavaScript(
+                `window.api.setSetting('theme','light').then(()=>'ok')`,
+              );
+              railWin.destroy();
+              if (railTheme !== 'dark') throw new Error('主窗口切深色未同步到贴边面板窗口');
+
+              await smokeCaptureAuxWindow(wwin, '34-widget-sync.png', smokeDir);
+              console.log('SHOT34_OK 跨窗任务双向同步 + 主题跨窗同步均生效');
             } else if (SHOT === 24 || SHOT === 25 || SHOT === 26) {
               // 真机诊断：透明窗口是否真的透明。capturePage() 会丢 alpha，
               // 只有「真实屏幕截图」能区分「透明」和「白底」。
