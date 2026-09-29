@@ -732,7 +732,7 @@ function bootstrap(): void {
 
       if (
         SMOKE &&
-        (SHOT === 8 || SHOT === 9 || SHOT === 14 || SHOT === 16 || SHOT === 21 || SHOT === 22 || SHOT === 23 || SHOT === 24 || SHOT === 25 || SHOT === 26 || SHOT === 27 || SHOT === 28 || SHOT === 29 || SHOT === 30 || SHOT === 31 || SHOT === 32 || SHOT === 33 || SHOT === 34)
+        (SHOT === 8 || SHOT === 9 || SHOT === 14 || SHOT === 16 || SHOT === 21 || SHOT === 22 || SHOT === 23 || SHOT === 24 || SHOT === 25 || SHOT === 26 || SHOT === 27 || SHOT === 28 || SHOT === 29 || SHOT === 30 || SHOT === 31 || SHOT === 32 || SHOT === 33 || SHOT === 34 || SHOT === 35)
       ) {
         const smokeDir = path.join(appDir, '.smoke');
         fs.mkdirSync(smokeDir, { recursive: true });
@@ -1444,6 +1444,42 @@ function bootstrap(): void {
 
               await smokeCaptureAuxWindow(wwin, '34-widget-sync.png', smokeDir);
               console.log('SHOT34_OK 跨窗任务双向同步 + 主题跨窗同步均生效');
+            } else if (SHOT === 35) {
+              // 诊断：番茄钟小组件头部拖不动。对比任务小组件（能拖）与番茄钟小组件（拖不动）
+              // 各自 .widget-head 的计算 app-region 值、头部中心点的实际命中元素。
+              const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+              const probe = `(() => {
+                 const head = document.querySelector('.widget-head');
+                 if (!head) return JSON.stringify({ head: false });
+                 const cs = getComputedStyle(head);
+                 const r = head.getBoundingClientRect();
+                 const cx = Math.round(r.left + r.width / 2);
+                 const cy = Math.round(r.top + r.height / 2);
+                 const el = document.elementFromPoint(cx, cy);
+                 const chain = [];
+                 let n = el;
+                 while (n && n !== document.body) {
+                   const st = getComputedStyle(n);
+                   chain.push(n.tagName + '.' + String(n.className).split(' ')[0] + '[region=' + (st.webkitAppRegion || st.appRegion) + ',pos=' + st.position + ',pe=' + st.pointerEvents + ']');
+                   n = n.parentElement;
+                 }
+                 return JSON.stringify({ head: true, rect: { x: r.x, y: r.y, w: r.width, h: r.height }, headRegion: cs.webkitAppRegion || cs.appRegion, hit: el ? el.tagName + '.' + String(el.className).split(' ')[0] : null, chain });
+              })()`;
+              // ① 任务小组件（能拖的参照物）
+              widget.toggleWidget();
+              await sleep(2200);
+              const wwin = widget.getWidget();
+              if (!wwin || wwin.isDestroyed()) throw new Error('任务小组件窗口未创建');
+              const taskInfo = await wwin.webContents.executeJavaScript(probe);
+              console.log('SHOT35_TASK_WIDGET', taskInfo);
+              // ② 番茄钟小组件（拖不动的疑似对象）
+              pomodoroWidget.togglePomodoroWidget();
+              await sleep(2200);
+              const pwin = pomodoroWidget.getPomodoroWidget();
+              if (!pwin || pwin.isDestroyed()) throw new Error('番茄钟小组件窗口未创建');
+              const pomoInfo = await pwin.webContents.executeJavaScript(probe);
+              console.log('SHOT35_POMO_WIDGET', pomoInfo);
+              console.log('SHOT35_OK 诊断信息已打印（对比上方两行 JSON）');
             } else if (SHOT === 24 || SHOT === 25 || SHOT === 26) {
               // 真机诊断：透明窗口是否真的透明。capturePage() 会丢 alpha，
               // 只有「真实屏幕截图」能区分「透明」和「白底」。

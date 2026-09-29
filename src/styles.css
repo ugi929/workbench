@@ -1007,6 +1007,13 @@ body {
   text-align: center;
 }
 
+/* 头部必须横向拉满整行：卡片是 align-items:center，会把头部收缩成内容宽（~116px），
+   导致顶部其余区域落在 region=none 的卡片背景上——点那里拖不动窗口（任务小组件的
+   头部默认 stretch 满宽，所以能拖）。拉满后整条顶栏都是拖拽区，按钮仍是 no-drag。 */
+.pomo-widget .widget-head {
+  align-self: stretch;
+}
+
 .pomo-w-ring {
   position: relative;
   display: flex;
