@@ -67,8 +67,15 @@ npm run dev        # 开发模式（Vite 热更新 + Electron）
 npm run build      # 构建（主进程 tsc + 渲染层 vite）
 npm start          # 运行已构建版本
 npm run smoke      # 冒烟测试（无窗口后台启动，输出 SMOKE_OK 即通过）
-npm run dist       # 打包 Windows 安装包（electron-builder → NSIS）
+npm run dist       # 打包 Windows 安装包（electron-builder → NSIS，产物在 release/）
 ```
+
+安装包是**向导式**（`nsis.oneClick: false` + `allowToChangeInstallationDirectory: true`）：
+依次为「为谁安装（所有用户 / 仅为我）→ 选择安装位置 → 安装 → 完成」，因此**可以自选安装文件夹**。
+默认按当前用户装（不需要管理员）；选「为所有用户」才会弹 UAC。卸载时保留 `%APPDATA%\工作台` 数据。
+
+> 注意 `oneClick` 默认为 `true`（单击静默安装、**不弹界面也就没法选目录**），要选目录必须显式关掉它。
+> 另外该目录页在应用内自动更新（安装器带 `/updated` 参数启动）时会被刻意跳过，直接原地升级。
 
 冒烟测试可用环境变量指定抓取目标（截图落在 `.smoke/`）：
 

@@ -53,6 +53,17 @@
         "nsis"
       ]
     },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "perMachine": false,
+      "allowElevation": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "工作台",
+      "artifactName": "${productName} Setup ${version}.${ext}",
+      "deleteAppDataOnUninstall": false
+    },
     "directories": {
       "output": "release"
     }
