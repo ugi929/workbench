@@ -12,7 +12,10 @@ const RAIL_TOP_H = 56;
 const PANEL_W = 800; // 内容面板宽度（含图标列）
 const HANDLE = 22; // 收起态把手：露出屏幕边缘的宽度
 const HANDLE_LEN = 78; // 收起态把手：拉手本身的长度
-const HANDLE_PAD = 8; // 透明窗口在非贴边方向预留的余量（给圆角与投影留空间）
+const HANDLE_PAD = 8; // 透明窗口在非贴边方向预留的余量：只给 hover 的 translateX/scale 留活动空间。
+// ⚠️ 这 8px 必须保持**全透明**：不许画外发光/外投影。透明像素同样参与合成，
+//    溢出到留白的光晕会被窗口边界硬裁成一块边缘笔直的浅色矩形（用户报障「周围浅色的区域」）。
+//    呼吸辉光已改为 inset 内发光，见 styles.css 的 .dock-tab::after。
 const HANDLE_SPAN = HANDLE_LEN + HANDLE_PAD * 2; // 窗口沿边缘方向的整长
 const HIT_POLL = 60; // 收起态：光标命中检测间隔（ms）
 const HIT_GRACE = 3; // 光标离开拉手实体后，连续 N 次（≈180ms）才切回穿透
@@ -78,7 +81,7 @@ function inRect(p: { x: number; y: number }, r: Rectangle, margin = 0): boolean 
 
 /**
  * 收起态拉手窗口里「实体拉手」的矩形（屏幕坐标）。窗口是 30×94 的透明窗口，
- * 实体只占 22×78，其余都是透明留白（给圆角与投影）。
+ * 实体只占 22×78，其余都是透明留白（只给 hover 位移留空间，必须保持全透明）。
  * 透明像素同样参与 Windows 命中测试 —— 整窗范围内桌面图标都会被挡住，
  * 所以收起态要靠这个矩形做光标命中检测：只有落在它里面才让窗口吃鼠标。
  * 与 styles.css 的 .tab-left / .tab-right / .tab-top 严格对应（实体贴屏幕边、非贴边侧留 PAD）。

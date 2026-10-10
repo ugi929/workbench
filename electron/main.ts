@@ -1602,6 +1602,11 @@ function bootstrap(): void {
               if (!mainWindow || mainWindow.isDestroyed()) throw new Error('主窗口不存在');
               if (!dockCtl) throw new Error('edgeDock 未初始化');
               mainWindow.show();
+              // 摆到左侧垂直居中：让本次折叠**一定贴左边**（用户报障的就是左边的拉手；
+              // 不摆位置时折叠到哪一边取决于窗口当时的坐标，测出来会是顶边）。
+              const wa37 = screen.getDisplayMatching(mainWindow.getBounds()).workArea;
+              mainWindow.setPosition(wa37.x + 120, Math.round(wa37.y + 200));
+              await sleep(400);
               dockCtl.collapse();
               await sleep(3500);
               const hw = getHandleWindow();
@@ -1636,7 +1641,55 @@ function bootstrap(): void {
                 'wasteArea=' + (hb.width * hb.height - hit.width * hit.height),
               );
               await smokeCaptureAuxWindow(hw, '37-handle-hit.png', smokeDir);
-              console.log('SHOT37_OK 折叠态拉手实体几何正确（留白区域由主进程按光标轮询切换穿透）');
+              // 真机截屏复核「留白必须真透明」。
+              // 背景：留白里画过 18px 外发光 → 溢出到留白 → 被窗口边界硬裁成一块边缘笔直的
+              // 浅色矩形（用户报障「折叠状态下周围浅色的区域可以去掉」）。
+              // capturePage() 丢 alpha，分不出「真透明」和「浅色底」，只能用真实屏幕截图；
+              // 而拿「留白 vs 远处壁纸」比起伏太大（远处可能正好压着桌面图标），
+              // 所以改成**同一像素、拉手显示/隐藏各截一张做差**：留白真透明则两次完全相同，
+              // 有光晕则差出光晕浓度。这与背景是什么内容无关。
+              const padLx = hb.width - 3; // 留白内侧（实体占 0..22）
+              const capOn = await smokeDeskCapture(hw, '37-handle-pad-desk.png', smokeDir, hwa, 60);
+              hw.hide();
+              await sleep(350);
+              const capOff = await smokeDeskCapture(hw, '37-handle-pad-desk-off.png', smokeDir, hwa, 60);
+              hw.show();
+              await sleep(250);
+              const diffs: number[] = [];
+              for (let ly = 2; ly < hb.height - 2; ly += 2) {
+                const p = deskPixel(capOn, padLx, ly);
+                const q = deskPixel(capOff, padLx, ly);
+                diffs.push(
+                  Math.max(Math.abs(p[0] - q[0]), Math.abs(p[1] - q[1]), Math.abs(p[2] - q[2])),
+                );
+              }
+              diffs.sort((a, b) => a - b);
+              // 反向自检：实体拉手那几列必须**明显变化**，否则说明压根没截到拉手（假通过）。
+              // 取 3 个高度上的点求最大差值：单点可能正巧撞上「拉手色 ≈ 背后的桌面色」，会假失败。
+              let pillDelta = 0;
+              for (const ply of [15, Math.round(hb.height / 2), hb.height - 15]) {
+                const pon = deskPixel(capOn, 11, ply);
+                const poff = deskPixel(capOff, 11, ply);
+                pillDelta = Math.max(
+                  pillDelta,
+                  Math.abs(pon[0] - poff[0]),
+                  Math.abs(pon[1] - poff[1]),
+                  Math.abs(pon[2] - poff[2]),
+                );
+              }
+              const minDiff = diffs[0] ?? 255;
+              console.log(
+                'SHOT37_PAD',
+                'padLx=' + padLx,
+                'minDiff=' + minDiff,
+                'maxDiff=' + (diffs[diffs.length - 1] ?? -1),
+                'pillDelta=' + pillDelta,
+              );
+              if (pillDelta < 40) throw new Error(`反向自检失败：截不到拉手实体（pillDelta=${pillDelta}）`);
+              if (minDiff > 8) {
+                throw new Error(`拉手留白不透明：显示/隐藏拉手后留白色差 ${minDiff}（疑似光晕溢出被窗口裁成矩形）`);
+              }
+              console.log('SHOT37_OK 折叠态拉手实体几何正确、四周留白真透明（穿透 + 无光晕溢出）');
             } else if (SHOT === 24 || SHOT === 25 || SHOT === 26) {
               // 真机诊断：透明窗口是否真的透明。capturePage() 会丢 alpha，
               // 只有「真实屏幕截图」能区分「透明」和「白底」。

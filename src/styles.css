@@ -1565,8 +1565,11 @@ body {
 
 /* ================= 屏幕边缘停靠 =================
    三种形态：收起拉手(.dock-tab) / 图标栏(.dock-rail) / 面板(.dock-panel)
-   拉手窗口为透明窗口，圆角与投影都在窗口内渲染，因此窗口尺寸必须与下面
-   的 22 × 78（长度方向上再各留 8px 阴影余量）严格对应。 */
+   拉手窗口是 30×94 的**透明窗口**，实体拉手只占 22×78，四周留白 8px。
+   ⚠️ 留白里**一个像素都不许画**（不许有外发光/外投影）：透明像素一样参与合成，
+   溢出到留白里的光晕会被窗口边界硬裁成一块边缘笔直的浅色矩形，看起来像拉手
+   外面套了个方框（用户报障「折叠状态下周围浅色的区域」）。
+   留白的唯一用途是给 hover 时的 translateX(2px) / scale(1.03) 留活动空间。 */
 
 /* ---------- 收起态：贴边小拉手 ---------- */
 .dock-tab {
@@ -1580,19 +1583,21 @@ body {
   user-select: none;
   background: linear-gradient(155deg, #7c95ff 0%, #4c6ef5 42%, #2b37a4 100%);
   border: 1px solid rgba(255, 255, 255, 0.24);
-  box-shadow: 0 6px 20px rgba(16, 30, 100, 0.5);
   animation: tabIn 0.24s cubic-bezier(0.2, 0.8, 0.3, 1);
   transition: transform 0.18s cubic-bezier(0.2, 0.7, 0.3, 1), filter 0.18s ease;
 }
 
-/* 呼吸辉光：常驻但克制，悬停时点亮 */
+/* 呼吸辉光：**只能画在拉手内部**，外面一个像素都不多。
+   原先这里是 `inset: -1px` + 18px 外发光，会溢出到 8px 透明留白里；
+   留白被窗口边界硬裁 → 留白变成一块边缘笔直的浅色矩形。
+   改成 inset 内发光后，光晕完全落在拉手体内，留白保持全透明。 */
 .dock-tab::after {
   content: '';
   position: absolute;
-  inset: -1px;
+  inset: 0;
   border-radius: inherit;
-  box-shadow: 0 0 18px 4px rgba(90, 124, 255, 0.8);
-  opacity: 0.22;
+  box-shadow: inset 0 0 14px 2px rgba(158, 184, 255, 0.8);
+  opacity: 0.25;
   pointer-events: none;
   animation: tabBreathe 3.8s ease-in-out infinite;
 }
