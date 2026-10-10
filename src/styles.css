@@ -53,7 +53,7 @@ body {
   font-weight: 600;
 }
 
-/* 标题栏「收缩」按钮：把完整窗口收回到屏幕边缘的贴边图标栏 */
+/* 标题栏「折叠」按钮：把完整窗口折叠到屏幕边缘的贴边图标栏 */
 .titlebar-collapse {
   margin-left: 12px;
   -webkit-app-region: no-drag;

@@ -41,10 +41,27 @@ export default function DockHandle() {
     void window.api.dockPeekIn();
   };
 
-  const onEnter = () => {
+  const arm = () => {
     disarm();
     dwell.current = setTimeout(openMenu, DWELL_MS);
   };
+
+  const onEnter = () => arm();
+
+  // 收起态拉手窗口除了「拉手实体」以外的区域一律鼠标穿透（否则会挡住桌面图标，
+  // 用户点不中下面的软件）。穿透 / 恢复由主进程按光标位置轮询切换，并通过
+  // dock:pointer 告知本窗口：
+  //   in  → 等价 mouseenter，重新起「悬停滑出」计时（光标移入后停住不动也能展开）
+  //   out → 穿透后收不到 mouseleave，必须手动撤掉计时器，否则会误展开
+  useEffect(() => {
+    const off = window.api.onDockPointer((phase) => {
+      if (phase === 'in') arm();
+      else disarm();
+    });
+    return off;
+    // arm/disarm 只操作 ref，跨渲染稳定；这里只订阅一次
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const onTabMouseDown = (e: React.MouseEvent) => {
     e.preventDefault();

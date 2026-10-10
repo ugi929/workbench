@@ -14,6 +14,8 @@ const HANDLE = 22; // 收起态把手：露出屏幕边缘的宽度
 const HANDLE_LEN = 78; // 收起态把手：拉手本身的长度
 const HANDLE_PAD = 8; // 透明窗口在非贴边方向预留的余量（给圆角与投影留空间）
 const HANDLE_SPAN = HANDLE_LEN + HANDLE_PAD * 2; // 窗口沿边缘方向的整长
+const HIT_POLL = 60; // 收起态：光标命中检测间隔（ms）
+const HIT_GRACE = 3; // 光标离开拉手实体后，连续 N 次（≈180ms）才切回穿透
 const SLIDE_STEPS = 8;
 const SLIDE_INTERVAL = 20;
 const TOP_RAIL_MIN_W = 360; // 顶部图标栏自适应的最小宽度
@@ -74,6 +76,19 @@ function inRect(p: { x: number; y: number }, r: Rectangle, margin = 0): boolean 
   );
 }
 
+/**
+ * 收起态拉手窗口里「实体拉手」的矩形（屏幕坐标）。窗口是 30×94 的透明窗口，
+ * 实体只占 22×78，其余都是透明留白（给圆角与投影）。
+ * 透明像素同样参与 Windows 命中测试 —— 整窗范围内桌面图标都会被挡住，
+ * 所以收起态要靠这个矩形做光标命中检测：只有落在它里面才让窗口吃鼠标。
+ * 与 styles.css 的 .tab-left / .tab-right / .tab-top 严格对应（实体贴屏幕边、非贴边侧留 PAD）。
+ */
+export function handleHitRect(s: Side, b: Rectangle): Rectangle {
+  if (s === 'top') return { x: b.x + HANDLE_PAD, y: b.y, width: HANDLE_LEN, height: HANDLE };
+  if (s === 'left') return { x: b.x, y: b.y + HANDLE_PAD, width: HANDLE, height: HANDLE_LEN };
+  return { x: b.x + HANDLE_PAD, y: b.y + HANDLE_PAD, width: HANDLE, height: HANDLE_LEN };
+}
+
 const easeInOut = (t: number): number => (t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2);
 
 export function attachEdgeDock(
@@ -101,6 +116,10 @@ export function attachEdgeDock(
   let dockTimer: ReturnType<typeof setTimeout> | null = null;
   let leaveTimer: ReturnType<typeof setInterval> | null = null;
   let slideTimer: ReturnType<typeof setInterval> | null = null;
+  let hitTimer: ReturnType<typeof setInterval> | null = null;
+  // 拉手窗口当前是否吃鼠标（true = 正常命中）。见 startHitWatch 的说明。
+  let handleClickable = true;
+  let hitMiss = 0;
   let panelPage: string | null = null;
 
   const ok = () => !win.isDestroyed() && enabled() && !win.isMaximized() && !win.isFullScreen();
@@ -167,9 +186,58 @@ export function attachEdgeDock(
     };
   }
 
+  function setHandleClickable(v: boolean, notify = true): void {
+    if (v === handleClickable) return;
+    handleClickable = v;
+    const w = handleWin;
+    if (!w || w.isDestroyed()) return;
+    try {
+      w.setIgnoreMouseEvents(!v, { forward: false });
+    } catch (err) {
+      appLog('dock: setIgnoreMouseEvents fail', err);
+    }
+    // 穿透时渲染层收不到 mouseleave：由主进程告诉它把「悬停滑出」的计时器撤掉；
+    // 恢复命中时补一个 in，避免光标移入后停住不动、渲染层迟迟等不到 mouseenter。
+    // notify=false 用于「拉手即将隐藏 / 已隐藏」的复位：那时不该再触发悬停展开。
+    if (notify) w.webContents.send('dock:pointer', v ? 'in' : 'out');
+    appLog('dock: hit', v ? 'interactive' : 'pass-through');
+  }
+
+  function stopHitWatch(): void {
+    if (hitTimer) {
+      clearInterval(hitTimer);
+      hitTimer = null;
+    }
+    hitMiss = 0;
+    // 复位成可交互（下次显示时不必等轮询），但不通知渲染层：窗口正要隐藏
+    setHandleClickable(true, false);
+  }
+
+  function startHitWatch(): void {
+    if (hitTimer) return;
+    hitMiss = 0;
+    hitTimer = setInterval(() => {
+      const w = handleWin;
+      if (!w || w.isDestroyed() || !side) return;
+      // 图标栏/面板滑出后拉手已隐藏：复位为常规命中（那是正经交互面，不能穿透），也不通知
+      if (!w.isVisible() || exposed !== 'none') {
+        hitMiss = 0;
+        setHandleClickable(true, false);
+        return;
+      }
+      if (inRect(screen.getCursorScreenPoint(), handleHitRect(side, w.getBounds()))) {
+        hitMiss = 0;
+        setHandleClickable(true);
+        return;
+      }
+      // 留一点宽限：拖动把手时窗口跟着光标走，瞬时判定落空不该把按下状态打断
+      hitMiss += 1;
+      if (hitMiss >= HIT_GRACE) setHandleClickable(false);
+    }, HIT_POLL);
+  }
+
   // 图标菜单展开位置：以把手中心为菜单中心（越界时夹回屏幕内）
-  function railShownBounds(s: Side, wa: Rectangle): Rectangle {
-    const hb = handleBounds(s, wa);
+  function railShownBounds(s: Side, wa: Rectangle): Rectangle {    const hb = handleBounds(s, wa);
     if (s === 'top') {
       // 顶部：紧贴屏幕上缘，宽度按内容自适应（量不到时先用缓存值/整屏兜底），
       // 并以把手中心为栏中心，越界时夹回屏幕内。
@@ -195,6 +263,7 @@ export function attachEdgeDock(
   function showHandle(s: Side, wa: Rectangle): void {
     try {
       const bounds = handleBounds(s, wa);
+      startHitWatch();
       if (handleWin && !handleWin.isDestroyed()) {
         handleWin.setBounds(bounds);
         handleWin.webContents
@@ -230,6 +299,7 @@ export function attachEdgeDock(
   }
 
   function hideHandle(): void {
+    stopHitWatch();
     if (handleWin && !handleWin.isDestroyed()) handleWin.hide();
   }
 
@@ -435,7 +505,7 @@ export function attachEdgeDock(
       try {
         if (Notification.isSupported()) {
           new Notification({
-            title: '工作台已收起到屏幕边缘',
+            title: '工作台已折叠到屏幕边缘',
             body: '点击边缘的工作台小图标：悬停显示菜单，点把手展开完整窗口',
           }).show();
         }
@@ -532,7 +602,7 @@ export function attachEdgeDock(
     hideHandle();
   }
 
-  // 「收缩」按钮：把展开中的主窗口收回到贴边图标栏（拖到边缘松手的同款神灯动画）。
+  // 「折叠」按钮：把展开中的主窗口收回到贴边图标栏（拖到边缘松手的同款神灯动画）。
   // 与 evaluate 不同——evaluate 只对「已经贴边」的窗口生效，这里要能从屏幕任意位置收起。
   function collapseManually(): void {
     if (!ok() || animating || docked) return;
@@ -594,6 +664,7 @@ export function attachEdgeDock(
   win.on('hide', () => detach());
   win.on('closed', () => {
     stopTimers();
+    stopHitWatch();
     hideRail();
     if (handleWin && !handleWin.isDestroyed()) handleWin.hide();
   });
@@ -667,6 +738,7 @@ export function attachEdgeDock(
     // 主窗口被销毁后重建前调用：清理本模块持有的把手/图标栏/动画窗口，避免残留
     dispose: () => {
       stopTimers();
+      stopHitWatch();
       try {
         if (handleWin && !handleWin.isDestroyed()) handleWin.destroy();
       } catch {

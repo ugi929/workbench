@@ -19,7 +19,7 @@ import * as reportMod from './report';
 import * as clipboardMod from './clipboard';
 import * as searchMod from './search';
 import { initPomodoroService } from './pomodoroService';
-import { attachEdgeDock, getHandleWindow, getRailWindow, initEdgeDock } from './edgeDock';
+import { attachEdgeDock, getHandleWindow, getRailWindow, handleHitRect, initEdgeDock } from './edgeDock';
 import { broadcast } from './broadcast';
 import { appLog, initLogger } from './logger';
 import type {
@@ -239,7 +239,7 @@ function recreateMainWindow(): void {
             `(async () => {
               ${darkScript}
               const l = await window.api.listTasks();
-              if (l.length === 0 && SHOT !== 36) {
+              if (l.length === 0 && ${SHOT !== 36}) {
                 await window.api.createTask({ title: '整理季度汇报材料', importance: 'high', urgency: 'high', start_date: '2026-09-16', due_date: '2026-09-20', project: '季度汇报', tags: ['文档'], progress: 30 });
                 await window.api.createTask({ title: '调研甘特图组件选型', importance: 'high', urgency: 'low', start_date: '2026-10-01', due_date: '2026-10-08', status: 'in_progress', project: '工具选型' });
                 await window.api.createTask({ title: '回复合作方邮件', importance: 'low', urgency: 'high', start_date: '2026-09-22', due_date: '2026-09-25' });
@@ -732,7 +732,7 @@ function bootstrap(): void {
 
       if (
         SMOKE &&
-        (SHOT === 8 || SHOT === 9 || SHOT === 14 || SHOT === 16 || SHOT === 21 || SHOT === 22 || SHOT === 23 || SHOT === 24 || SHOT === 25 || SHOT === 26 || SHOT === 27 || SHOT === 28 || SHOT === 29 || SHOT === 30 || SHOT === 31 || SHOT === 32 || SHOT === 33 || SHOT === 34 || SHOT === 35 || SHOT === 36)
+        (SHOT === 8 || SHOT === 9 || SHOT === 14 || SHOT === 16 || SHOT === 21 || SHOT === 22 || SHOT === 23 || SHOT === 24 || SHOT === 25 || SHOT === 26 || SHOT === 27 || SHOT === 28 || SHOT === 29 || SHOT === 30 || SHOT === 31 || SHOT === 32 || SHOT === 33 || SHOT === 34 || SHOT === 35 || SHOT === 36 || SHOT === 37)
       ) {
         const smokeDir = path.join(appDir, '.smoke');
         fs.mkdirSync(smokeDir, { recursive: true });
@@ -1594,6 +1594,49 @@ function bootstrap(): void {
               if (!wwin || wwin.isDestroyed()) throw new Error('小组件窗口未创建');
               await smokeCaptureAuxWindow(wwin, '36-widget.png', smokeDir);
               console.log('SHOT36_OK README 截图已生成（5 页 × 浅/深 + 小组件）');
+            } else if (SHOT === 37) {
+              // 折叠态「鼠标穿透」几何回归：拉手窗口 30×94 中只有 22×78 是实体，
+              // 其余透明留白必须放行，否则会挡住桌面图标（用户报障：折叠后点不中 ZCode）。
+              // 这里断言实体矩形与窗口的对应关系（用的是主进程真实命中公式），并截一张拉手图。
+              const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+              if (!mainWindow || mainWindow.isDestroyed()) throw new Error('主窗口不存在');
+              if (!dockCtl) throw new Error('edgeDock 未初始化');
+              mainWindow.show();
+              dockCtl.collapse();
+              await sleep(3500);
+              const hw = getHandleWindow();
+              if (!hw || hw.isDestroyed()) throw new Error('拉手窗口未创建');
+              const hb = hw.getBounds();
+              const hwa = screen.getDisplayMatching(hb).workArea;
+              const hSide: 'left' | 'right' | 'top' =
+                hb.x <= hwa.x + 2 ? 'left' : hb.x + hb.width >= hwa.x + hwa.width - 2 ? 'right' : 'top';
+              const hit = handleHitRect(hSide, hb);
+              console.log('SHOT37_SIDE', hSide, 'bounds', JSON.stringify(hb), 'hit', JSON.stringify(hit));
+              const wantW = hSide === 'top' ? 78 : 22;
+              const wantH = hSide === 'top' ? 22 : 78;
+              if (hit.width !== wantW || hit.height !== wantH) {
+                throw new Error(`拉手实体应为 ${wantW}×${wantH}，实际 ${hit.width}×${hit.height}`);
+              }
+              const inside =
+                hit.x >= hb.x &&
+                hit.y >= hb.y &&
+                hit.x + hit.width <= hb.x + hb.width &&
+                hit.y + hit.height <= hb.y + hb.height;
+              if (!inside) throw new Error('拉手实体矩形超出窗口 bounds');
+              const flush =
+                hSide === 'left'
+                  ? hit.x === hwa.x
+                  : hSide === 'right'
+                    ? hit.x + hit.width === hwa.x + hwa.width
+                    : hit.y === hwa.y;
+              console.log(
+                'SHOT37_GEOM',
+                'inside=' + inside,
+                'flushEdge=' + flush,
+                'wasteArea=' + (hb.width * hb.height - hit.width * hit.height),
+              );
+              await smokeCaptureAuxWindow(hw, '37-handle-hit.png', smokeDir);
+              console.log('SHOT37_OK 折叠态拉手实体几何正确（留白区域由主进程按光标轮询切换穿透）');
             } else if (SHOT === 24 || SHOT === 25 || SHOT === 26) {
               // 真机诊断：透明窗口是否真的透明。capturePage() 会丢 alpha，
               // 只有「真实屏幕截图」能区分「透明」和「白底」。
@@ -1637,17 +1680,17 @@ function bootstrap(): void {
               const wa = screen.getPrimaryDisplay().workArea;
               console.log('WA=', JSON.stringify(wa));
               mainWindow?.show();
-              // 放到工作区偏中间的位置（非贴边），验证「收缩」能从任意位置收起
+              // 放到工作区偏中间的位置（非贴边），验证「折叠」能从任意位置收起
               mainWindow?.setPosition(wa.x + 80, wa.y + 80);
               await sleep(600);
               console.log('PRECOLLAPSE isDocked=', dockCtl?.isDocked());
               dockCtl?.collapse();
               await sleep(1800);
               console.log('POSTCOLLAPSE isDocked=', dockCtl?.isDocked());
-              if (!dockCtl?.isDocked()) throw new Error('收缩后未进入停靠态');
+              if (!dockCtl?.isDocked()) throw new Error('折叠后未进入停靠态');
               const hw = getHandleWindow();
               console.log('HANDLE_AFTER_COLLAPSE=', !!hw, hw ? JSON.stringify(hw.getBounds()) : '');
-              if (!hw) throw new Error('收缩后未出现贴边把手窗口');
+              if (!hw) throw new Error('折叠后未出现贴边把手窗口');
               await smokeCaptureAuxWindow(hw, '22-collapse-handle.png', smokeDir);
               // 把手也是透明窗口，同样用真实屏幕截图确认没有白边。
               // 多等一会儿：神灯动画覆盖层要等动画跑完才会 hide()，别把它拍进来。

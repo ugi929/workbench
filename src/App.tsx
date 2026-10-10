@@ -151,7 +151,7 @@ function WorkbenchApp() {
     });
   }, [reload]);
 
-  // 设置页改了「贴边自动折叠」后，重新读取，决定标题栏「收缩」按钮是否显示
+  // 设置页改了「贴边自动折叠」后，重新读取，决定标题栏「折叠」按钮是否显示
   useEffect(() => {
     void window.api.getSettings().then((s) => setEdgeDockOn(s.edgeDock !== '0'));
   }, [settingsRevision]);
@@ -220,7 +220,7 @@ function WorkbenchApp() {
   };
 
   // 跨窗口同步：任一窗口改了任务数据 → 本窗口重新拉取；主题被其它窗口改了 → 同步应用。
-  // 这样「展开（主窗口）」与「收缩（贴边面板）」两边的任务和主题始终保持一致。
+  // 这样「展开（主窗口）」与「折叠（贴边面板）」两边的任务和主题始终保持一致。
   useEffect(() => {
     const offData = window.api.onDataChanged(() => {
       void reload();
@@ -389,11 +389,11 @@ function WorkbenchApp() {
           {edgeDockOn && (
             <button
               className="titlebar-collapse"
-              title="收起到屏幕边缘（折叠成贴边图标栏）"
+              title="折叠到屏幕边缘（贴边图标栏，悬停滑出菜单）"
               onClick={() => void window.api.dockCollapse()}
             >
               <CompressOutlined />
-              <span>收缩</span>
+              <span>折叠</span>
             </button>
           )}
         </div>

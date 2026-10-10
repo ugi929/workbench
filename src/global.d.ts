@@ -48,6 +48,8 @@ declare global {
       onDataChanged(cb: (kind: string) => void): () => void;
       /** 设置变更广播（主进程 settings:set 后推送给所有窗口），返回取消订阅函数 */
       onSettingsChanged(cb: (key: string, value: string) => void): () => void;
+      /** 收起态拉手窗口的鼠标穿透状态（主进程检测光标进出拉手实体后下发），返回取消订阅函数 */
+      onDockPointer(cb: (phase: 'in' | 'out') => void): () => void;
       pomoRecord(s: Omit<PomodoroSession, 'id'>): Promise<PomodoroSession>;
       pomoRecent(): Promise<PomodoroSessionWithTask[]>;
       pomoStats(): Promise<PomodoroStats>;

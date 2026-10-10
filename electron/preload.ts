@@ -50,6 +50,14 @@ const api = {
     ipcRenderer.on('settings:changed', listener as never);
     return () => ipcRenderer.removeListener('settings:changed', listener as never);
   },
+  /** 收起态拉手窗口的鼠标穿透状态切换（主进程轮询光标位置后下发）：
+   *  'in' = 光标在拉手实体上（窗口可交互），'out' = 已穿透（渲染层收不到 mouseleave，
+   *  必须靠这个信号把「悬停滑出」计时器撤掉，否则光标已经离开还会误展开）。 */
+  onDockPointer: (cb: (phase: 'in' | 'out') => void) => {
+    const listener = (_e: unknown, phase: 'in' | 'out') => cb(phase);
+    ipcRenderer.on('dock:pointer', listener as never);
+    return () => ipcRenderer.removeListener('dock:pointer', listener as never);
+  },
   pomoRecord: (s: Omit<PomodoroSession, 'id'>) => ipcRenderer.invoke('pomo:record', s),
   pomoRecent: () => ipcRenderer.invoke('pomo:recent'),
   pomoStats: () => ipcRenderer.invoke('pomo:stats'),
