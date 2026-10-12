@@ -22,6 +22,10 @@ const HIT_GRACE = 3; // 光标离开拉手实体后，连续 N 次（≈180ms）
 const SLIDE_STEPS = 8;
 const SLIDE_INTERVAL = 20;
 const TOP_RAIL_MIN_W = 360; // 顶部图标栏自适应的最小宽度
+// 神灯动画的硬超时：覆盖层窗口是 transparent + alwaysOnTop，只能由这里负责关掉。
+// 页面动画正常情况下 470/520ms 结束；给到 1.6s 是留足慢机器/首次解码的余量，
+// 一旦超时也照样 hide()，绝不允许它挂在那儿（挂了就是压在任务栏上的一块黑矩形）。
+const ANIM_TIMEOUT_MS = 1600;
 // 冒烟测试用：钉住展开态，方便截图（真实使用时不生效）
 const HOLD_FOR_TEST = process.env.WORKBENCH_DOCK_HOLD === '1';
 // 冒烟测试用：强制把手停靠位置（0~1，沿边缘的比例），便于验证边界几何
@@ -110,6 +114,7 @@ export function attachEdgeDock(
   railDragTo: (pt: { x: number; y: number }) => void;
   railDragEnd: () => void;
   dispose: () => void;
+  reset: () => void;
 } {
   let side: Side | null = null;
   let docked = false;
@@ -461,10 +466,31 @@ export function attachEdgeDock(
       from: { ...from, x: from.x - minX, y: from.y - minY },
       point: { x: point.x - minX, y: point.y - minY },
     };
-    await animWin.webContents.executeJavaScript(
-      `window.__playGenie(${JSON.stringify({ img: imgDataUrl, ...rel, side: s, dir })})`,
-    );
-    animWin.hide();
+    // await 页面动画的 Promise，但**必须**有硬超时：
+    // 这个 Promise 来自渲染层的 window.__playGenie，而覆盖层窗口本身没有任何别的回收路径
+    // （原来只在 await 成功后才 hide()）。只要它不 settle —— 页面被遮挡导致时间轴不推进、
+    // 元素被下一次调用清出 DOM 触发 cancel、渲染层异常等等 —— 这行 await 就永久挂起，
+    // 窗口不关 → 黑块，且 collapseAnimated/expandAnimated 的 animating 停在 true → 展开失效。
+    let guard: ReturnType<typeof setTimeout> | null = null;
+    try {
+      await Promise.race([
+        animWin.webContents.executeJavaScript(
+          `window.__playGenie(${JSON.stringify({ img: imgDataUrl, ...rel, side: s, dir })})`,
+        ),
+        new Promise<void>((r) => {
+          guard = setTimeout(() => {
+            appLog('dock: genie anim timeout → hide overlay');
+            r();
+          }, ANIM_TIMEOUT_MS);
+        }),
+      ]);
+    } catch (err) {
+      // executeJavaScript 自身失败（窗口被销毁、脚本抛错）同样不能把窗口留在屏幕上
+      appLog('dock: genie eval fail', err);
+    } finally {
+      if (guard !== null) clearTimeout(guard);
+      if (!animWin.isDestroyed()) animWin.hide();
+    }
   }
 
   async function collapseAnimated(): Promise<void> {
@@ -498,11 +524,14 @@ export function attachEdgeDock(
     } catch (err) {
       appLog('dock: anim fail', err);
       console.error('DOCK_ANIM_FAIL', err);
+    } finally {
+      // 动画无论正常结束 / 超时兜底 / 抛错，都必须落到「已折叠」这个稳定态并把 animating 放开。
+      // animating 一旦漏放，expandManually 的 `docked && !animating` 就永远为假 —— 窗口再也打不开。
+      if (!win.isDestroyed()) win.setBounds(strip);
+      showHandle(side, wa);
+      animating = false;
+      exposed = 'none';
     }
-    win.setBounds(strip);
-    showHandle(side, wa);
-    animating = false;
-    exposed = 'none';
     if (!dockNotified) {
       dockNotified = true;
       try {
@@ -540,15 +569,18 @@ export function attachEdgeDock(
     } catch (err) {
       appLog('dock: anim fail', err);
       console.error('DOCK_ANIM_FAIL', err);
+    } finally {
+      lastShot = null;
+      if (!win.isDestroyed()) {
+        win.setBounds(full);
+        if (!win.isVisible()) win.show();
+        win.setOpacity(1);
+      }
+      animating = false;
+      docked = false;
+      exposed = 'none';
+      panelPage = null;
     }
-    lastShot = null;
-    win.setBounds(full);
-    if (!win.isVisible()) win.show();
-    win.setOpacity(1);
-    animating = false;
-    docked = false;
-    exposed = 'none';
-    panelPage = null;
     appLog('dock: expanded');
     opts.onFullExpanded(page);
   }
@@ -603,6 +635,47 @@ export function attachEdgeDock(
     stopTimers();
     hideRail();
     hideHandle();
+  }
+
+  // 手动救命键（托盘「恢复窗口（重置停靠）」）——针对「神灯覆盖层卡住 / 状态机卡住」的复合症状：
+  // 覆盖层窗口赖着不走 = 屏幕边缘一块黑矩形；animating 卡 true = 点把手展开没反应。
+  // 这里刻意不依赖任何前置状态，全部清空重来，是最终兜底（正常路径走不到这里）。
+  function resetDock(): void {
+    appLog('dock: reset (manual)');
+    animating = false;
+    side = null;
+    docked = false;
+    exposed = 'none';
+    panelPage = null;
+    if (dockTimer) {
+      clearTimeout(dockTimer);
+      dockTimer = null;
+    }
+    if (slideTimer) {
+      clearInterval(slideTimer);
+      slideTimer = null;
+    }
+    stopTimers();
+    stopHitWatch();
+    hideRail();
+    hideHandle();
+    if (animWin && !animWin.isDestroyed()) animWin.hide();
+    if (!win || win.isDestroyed()) return;
+    // 停靠态下主窗口的 bounds 已被 dockedBounds() 推到屏幕外，直接 show() 还是看不见：
+    // 先把左上角夹回工作区，再显示。
+    const wa = workAreaOf(win);
+    const b = win.getBounds();
+    const x = Math.min(Math.max(b.x, wa.x), Math.max(wa.x, wa.x + wa.width - b.width));
+    const y = Math.min(Math.max(b.y, wa.y), Math.max(wa.y, wa.y + wa.height - b.height));
+    if (x !== b.x || y !== b.y) win.setBounds({ ...b, x, y });
+    try {
+      win.setOpacity(1);
+      if (!win.isVisible()) win.show();
+      win.focus();
+      win.webContents.focus();
+    } catch (err) {
+      appLog('dock: reset show fail', err);
+    }
   }
 
   // 「折叠」按钮：把展开中的主窗口收回到贴边图标栏（拖到边缘松手的同款神灯动画）。
@@ -766,6 +839,7 @@ export function attachEdgeDock(
       panelPage = null;
       lastShot = null;
     },
+    reset: resetDock,
   };
 }
 

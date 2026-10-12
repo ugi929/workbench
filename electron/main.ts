@@ -63,6 +63,7 @@ let dockCtl: {
   railDragTo: (pt: { x: number; y: number }) => void;
   railDragEnd: () => void;
   dispose: () => void;
+  reset: () => void;
 } | null = null;
 
 const appDir = app.getAppPath();
@@ -685,6 +686,15 @@ function bootstrap(): void {
         togglePomodoroWidget: () => pomodoroWidget.togglePomodoroWidget(),
         createNote: createNoteAction,
         toggleAllNotes: () => notes.toggleAllNotes(),
+        // 救命键：停靠状态机卡死时（边缘黑块 / 点把手没反应）从托盘一键复位
+        resetDock: () => {
+          try {
+            dockCtl?.reset();
+          } catch (err) {
+            appLog('dock: tray reset fail', err);
+          }
+          showMain();
+        },
         quit: () => {
           quitting = true;
           notes.setQuitting(true);

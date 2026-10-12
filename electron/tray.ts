@@ -15,6 +15,7 @@ export interface TrayActions {
   togglePomodoroWidget: () => void;
   createNote: () => void;
   toggleAllNotes: () => void;
+  resetDock: () => void;
   quit: () => void;
 }
 
@@ -35,6 +36,10 @@ export function createTray(actions: TrayActions): void {
     { label: '番茄钟小组件', click: actions.togglePomodoroWidget },
     { label: '新建便签', click: actions.createNote },
     { label: '显示/隐藏全部便签', click: actions.toggleAllNotes },
+    { type: 'separator' },
+    // 折叠/展开动画异常时，屏幕边缘可能留下一块点不掉的覆盖层（并导致窗口展不开）。
+    // 这条是最终兜底：无条件清空停靠状态并把主窗口拉回可见区域。
+    { label: '恢复窗口（重置停靠）', click: actions.resetDock },
     { type: 'separator' },
     { label: '退出', click: actions.quit },
   ]);

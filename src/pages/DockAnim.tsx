@@ -62,15 +62,32 @@ interface GenieOpts {
       };
     });
 
+    const duration = o.dir === 'collapse' ? 470 : 520;
     const anim = img.animate(frames, {
-      duration: o.dir === 'collapse' ? 470 : 520,
+      duration,
       easing: o.dir === 'collapse' ? 'cubic-bezier(.55,0,1,.45)' : 'cubic-bezier(.2,.65,.3,1)',
       fill: 'forwards',
     });
-    anim.onfinish = () => {
+
+    // ⚠️ 这个 Promise 必须在任何情况下都 resolve —— 主进程靠 await 它来决定何时关掉覆盖层窗口。
+    //    只挂 onfinish 是不够的：Web Animations 在
+    //      ① 元素被下一次调用清出 DOM（host.innerHTML = ''）而被浏览器 cancel、
+    //      ② 窗口被遮挡 / 合成器忙，时间轴根本不推进，
+    //    两种情况下都【不会】触发 finish，改而触发 cancel 或什么都不触发。
+    //    一旦漏掉，主进程那个 await 永久挂起：transparent + alwaysOnTop 的覆盖层窗口不关，
+    //    就成了压在任务栏图标上的一块黑矩形，且 animating 卡在 true 导致点展开没反应。
+    let settled = false;
+    let guard: ReturnType<typeof setTimeout> | null = null;
+    const settle = () => {
+      if (settled) return;
+      settled = true;
+      if (guard !== null) clearTimeout(guard);
       host.innerHTML = '';
       resolve();
     };
+    anim.onfinish = settle;
+    anim.oncancel = settle;
+    guard = setTimeout(settle, duration + 800);
   });
 
 export default function DockAnim() {
